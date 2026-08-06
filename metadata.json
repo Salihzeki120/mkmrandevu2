@@ -1,0 +1,7 @@
+{
+  "name": "Sistem Vize Yönetim Sistemi",
+  "description": "Sistem Vize - Bright Travel Profesyonel Operasyon ve Yönetim Sistemi.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
