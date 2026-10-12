@@ -115,3 +115,14 @@ export interface CountryPrice {
   toplam: number;
   currency?: string;
 }
+
+export interface BankAccount {
+  id: string;
+  bankName: string;
+  accountHolder: string;
+  iban: string;
+  currency: string;
+  branch?: string;
+  swift?: string;
+  isActive?: boolean;
+}

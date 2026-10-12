@@ -123,6 +123,9 @@ export default function AccountingForm({ applicant, prices, accounting, onClose,
                 name="faturaNo" 
                 value={formData.faturaNo} 
                 onChange={handleChange} 
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
                 placeholder="MKM-2026-..."
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none" 
               />
@@ -136,6 +139,7 @@ export default function AccountingForm({ applicant, prices, accounting, onClose,
                     name="tutar" 
                     value={formData.tutar || ''} 
                     onChange={handleChange} 
+                    autoComplete="off"
                     placeholder="0.00"
                     className="w-full pl-4 pr-10 py-2.5 bg-white border-2 border-emerald-100 rounded-xl focus:border-emerald-500 outline-none font-bold text-emerald-700" 
                   />
@@ -149,6 +153,7 @@ export default function AccountingForm({ applicant, prices, accounting, onClose,
                   name="tarih" 
                   value={formData.tarih} 
                   onChange={handleChange} 
+                  autoComplete="off"
                   className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none" 
                 />
               </div>

@@ -1,13 +1,11 @@
 import express from "express";
 import "dotenv/config";
-import { createServer as createViteServer } from "vite";
 import Database from "better-sqlite3";
 import path from "path";
 import fs from 'fs';
 import nodemailer from "nodemailer";
 import bcrypt from "bcryptjs";
 import session from "express-session";
-import sessionFileStore from "session-file-store";
 import { calculatePrice } from "./src/utils/price";
 
 // Global error handlers for better debugging in iisnode
@@ -28,8 +26,6 @@ process.on('uncaughtException', (err) => {
   try { fs.appendFileSync(STARTUP_LOG, msg); } catch (e) {}
 });
 
-const FileStore = sessionFileStore(session);
-
 // Database and initial schema check
 let db: any;
 try {
@@ -42,6 +38,60 @@ try {
   try { fs.appendFileSync(STARTUP_LOG, msg); } catch (e) {}
 }
 
+// Custom SQLite Session Store (Eliminates Windows EPERM file locking & Vite page reload loops)
+class SqliteSessionStore extends session.Store {
+  get = (sid: string, callback: (err?: any, session?: any) => void) => {
+    try {
+      const row = db.prepare('SELECT sess, expired FROM sessions WHERE sid = ?').get(sid) as any;
+      if (!row) return callback(null, null);
+      if (row.expired && row.expired < Date.now()) {
+        db.prepare('DELETE FROM sessions WHERE sid = ?').run(sid);
+        return callback(null, null);
+      }
+      const sess = typeof row.sess === 'string' ? JSON.parse(row.sess) : row.sess;
+      callback(null, sess);
+    } catch (err) {
+      callback(err);
+    }
+  };
+
+  set = (sid: string, sess: any, callback?: (err?: any) => void) => {
+    try {
+      const maxAge = sess.cookie?.maxAge || 30 * 24 * 60 * 60 * 1000;
+      const expired = Date.now() + maxAge;
+      const sessJson = JSON.stringify(sess);
+      db.prepare(`
+        INSERT INTO sessions (sid, sess, expired)
+        VALUES (?, ?, ?)
+        ON CONFLICT(sid) DO UPDATE SET sess = excluded.sess, expired = excluded.expired
+      `).run(sid, sessJson, expired);
+      if (callback) callback(null);
+    } catch (err) {
+      if (callback) callback(err);
+    }
+  };
+
+  destroy = (sid: string, callback?: (err?: any) => void) => {
+    try {
+      db.prepare('DELETE FROM sessions WHERE sid = ?').run(sid);
+      if (callback) callback(null);
+    } catch (err) {
+      if (callback) callback(err);
+    }
+  };
+
+  touch = (sid: string, sess: any, callback?: (err?: any) => void) => {
+    try {
+      const maxAge = sess.cookie?.maxAge || 30 * 24 * 60 * 60 * 1000;
+      const expired = Date.now() + maxAge;
+      db.prepare('UPDATE sessions SET expired = ? WHERE sid = ?').run(expired, sid);
+      if (callback) callback(null);
+    } catch (err) {
+      if (callback) callback(err);
+    }
+  };
+}
+
 declare module 'express-session' {
   interface SessionData {
     userId: number;
@@ -52,6 +102,12 @@ declare module 'express-session' {
 
 // 1. CREATE TABLES FIRST
 db.exec(`
+  CREATE TABLE IF NOT EXISTS sessions (
+    sid TEXT PRIMARY KEY,
+    sess TEXT,
+    expired INTEGER
+  );
+
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE,
@@ -243,6 +299,7 @@ const migrations = [
   "ALTER TABLE settings ADD COLUMN support_email TEXT",
   "ALTER TABLE settings ADD COLUMN support_website TEXT",
   "ALTER TABLE settings ADD COLUMN support_hq_address TEXT",
+  "ALTER TABLE settings ADD COLUMN bank_accounts TEXT DEFAULT '[]'",
   `CREATE TABLE IF NOT EXISTS user_notifications (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     userId INTEGER,
@@ -285,6 +342,31 @@ try {
     if (!currentSettings.support_hq_address) {
       updates.push("support_hq_address = ?");
       values.push("Sistem Vize Operasyon ve Yönetim Merkezi\nAtatürk Bulvarı No: 123 Kat: 4\nKadıköy / İSTANBUL");
+    }
+    if (!currentSettings.bank_accounts || currentSettings.bank_accounts === '[]') {
+      const defaultAccounts = JSON.stringify([
+        {
+          id: "bank_1",
+          bankName: "Garanti BBVA",
+          accountHolder: "MKM VİZE DANIŞMANLIK HİZMETLERİ LTD. ŞTİ.",
+          iban: "TR89 0006 2000 0000 1234 5678 90",
+          currency: "TRY",
+          branch: "Beşiktaş Şubesi / İstanbul",
+          isActive: true
+        },
+        {
+          id: "bank_2",
+          bankName: "Türkiye İş Bankası",
+          accountHolder: "MKM VİZE DANIŞMANLIK HİZMETLERİ LTD. ŞTİ.",
+          iban: "TR12 0006 4000 0000 9876 5432 10",
+          currency: "EUR",
+          branch: "Levent Şubesi / İstanbul",
+          swift: "ISBTRISXXX",
+          isActive: true
+        }
+      ]);
+      updates.push("bank_accounts = ?");
+      values.push(defaultAccounts);
     }
     if (updates.length > 0) {
       db.prepare(`UPDATE settings SET ${updates.join(', ')} WHERE id = 1`).run(...values);
@@ -443,8 +525,40 @@ function ensureProformaInvoice(applicantData: any) {
   try {
     const existing = db.prepare("SELECT * FROM accounting WHERE takipKodu = ?").get(applicantData.takipKodu) as any;
     
-    // Fatura numarası halihazırda varsa dokunma
+    // Fatura numarası halihazırda varsa finansal detayları ve kişisel bilgileri güncelle
     if (existing && existing.faturaNo && existing.faturaNo.trim().length > 0) {
+      let konsoloslukUcreti = applicantData.konsoloslukUcreti !== undefined ? Number(applicantData.konsoloslukUcreti) : existing.konsoloslukUcreti;
+      let hizmetBedeli = applicantData.hizmetBedeli !== undefined ? Number(applicantData.hizmetBedeli) : existing.hizmetBedeli;
+      let kdvOrani = applicantData.kdvOrani !== undefined ? Number(applicantData.kdvOrani) : existing.kdvOrani;
+      let total = applicantData.fiyat !== undefined ? Number(applicantData.fiyat) : existing.toplam;
+
+      let calc = calculatePrice(konsoloslukUcreti, hizmetBedeli, kdvOrani, total > 0 ? total : undefined);
+
+      db.prepare(`
+        UPDATE accounting SET 
+          adSoyad = ?, islemDurumu = ?, randevuBilgisi = ?, 
+          pasaportNo = ?, ulke = ?, odemeDurumu = ?, firma = ?, 
+          konsoloslukUcreti = ?, hizmetBedeli = ?, netTutar = ?, kdvOrani = ?, kdv = ?, toplam = ?, 
+          currency = ?, musteriTipi = ?
+        WHERE id = ?
+      `).run(
+        `${applicantData.ad || ''} ${applicantData.soyad || ''}`.trim() || existing.adSoyad,
+        applicantData.islemDurumu || existing.islemDurumu,
+        applicantData.randevuTarihi ? `${applicantData.randevuTarihi} ${applicantData.saat || ''}`.trim() : existing.randevuBilgisi,
+        applicantData.pasaportNo || existing.pasaportNo || '',
+        applicantData.ulke || existing.ulke || '',
+        applicantData.odemeDurumu || existing.odemeDurumu || 'Ödenmedi',
+        applicantData.firmaAdi || existing.firma || 'MKM VİZE',
+        calc.konsoloslukUcreti,
+        calc.hizmetBedeli,
+        calc.hizmetBedeli,
+        calc.kdvOrani,
+        calc.kdv,
+        calc.toplam,
+        applicantData.currency || existing.currency || getCurrencyForCountry(applicantData.ulke),
+        applicantData.musteriTipi || existing.musteriTipi || 'Bireysel',
+        existing.id
+      );
       return;
     }
 
@@ -856,10 +970,10 @@ const sendProformaInvoiceEmail = async (to: string, applicantData: any) => {
   const countryPrice = db.prepare("SELECT * FROM prices WHERE ulke = ?").get(applicantData.ulke) as any;
 
   const calc = calculatePrice(
-    acc?.konsoloslukUcreti ?? applicantData.konsoloslukUcreti ?? countryPrice?.konsoloslukUcreti ?? 0,
-    acc?.hizmetBedeli ?? applicantData.hizmetBedeli ?? countryPrice?.hizmetBedeli,
-    acc?.kdvOrani ?? applicantData.kdvOrani ?? countryPrice?.kdvOrani ?? 20,
-    acc?.toplam || applicantData.fiyat || countryPrice?.toplam
+    applicantData.konsoloslukUcreti ?? acc?.konsoloslukUcreti ?? countryPrice?.konsoloslukUcreti ?? 0,
+    applicantData.hizmetBedeli ?? acc?.hizmetBedeli ?? countryPrice?.hizmetBedeli,
+    applicantData.kdvOrani ?? acc?.kdvOrani ?? countryPrice?.kdvOrani ?? 20,
+    applicantData.fiyat || acc?.toplam || countryPrice?.toplam
   );
 
   let faturaNo = acc?.faturaNo || `PRF-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
@@ -874,6 +988,45 @@ const sendProformaInvoiceEmail = async (to: string, applicantData: any) => {
   const formattedTotal = calc.toplam.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const musteriTipi = applicantData.musteriTipi || acc?.musteriTipi || 'Bireysel';
+
+  let bankAccountsList: any[] = [];
+  try {
+    if (settings.bank_accounts) {
+      bankAccountsList = JSON.parse(settings.bank_accounts);
+    }
+  } catch (e) {}
+
+  const activeBankAccounts = bankAccountsList.filter((b: any) => b.isActive !== false);
+
+  let bankAccountsHtml = '';
+  if (activeBankAccounts.length > 0) {
+    bankAccountsHtml = `
+      <!-- BANKA HESAP BİLGİLERİ -->
+      <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 15px; margin-bottom: 20px;">
+        <p style="margin: 0 0 10px 0; font-weight: 800; font-size: 13px; color: #0f172a; border-bottom: 1px solid #cbd5e1; padding-bottom: 6px;">
+          🏦 ÖDEME BİLGİLERİ (HAVALE / EFT)
+        </p>
+        <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+          ${activeBankAccounts.map((accItem: any) => `
+            <tr style="border-bottom: 1px dashed #e2e8f0;">
+              <td style="padding: 8px 0; font-weight: 700; color: #1e293b; vertical-align: top;">
+                ${accItem.bankName} ${accItem.branch ? `(${accItem.branch})` : ''}
+                <span style="background-color: #e2e8f0; color: #334155; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; margin-left: 6px; text-transform: uppercase;">${accItem.currency || 'TRY'}</span>
+              </td>
+              <td style="padding: 8px 0; text-align: right; vertical-align: top;">
+                <div style="font-family: monospace; font-weight: 800; color: #0f172a; font-size: 12px;">IBAN: ${accItem.iban}</div>
+                <div style="color: #64748b; font-size: 11px;">Alıcı: ${accItem.accountHolder}</div>
+                ${accItem.swift ? `<div style="color: #64748b; font-size: 10px; font-family: monospace;">SWIFT: ${accItem.swift}</div>` : ''}
+              </td>
+            </tr>
+          `).join('')}
+        </table>
+        <p style="margin: 10px 0 0 0; font-size: 11px; color: #64748b; font-style: italic;">
+          * Havale / EFT açıklama kısmına <strong>${applicantData.ad} ${applicantData.soyad} - ${applicantData.takipKodu}</strong> yazmanızı rica ederiz.
+        </p>
+      </div>
+    `;
+  }
 
   const html = `
     <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 650px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; color: #1e293b; background-color: #ffffff; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);">
@@ -902,6 +1055,13 @@ const sendProformaInvoiceEmail = async (to: string, applicantData: any) => {
             <td style="text-align: right;"><strong>Takip Kodu:</strong> <span style="color: #0f172a; font-weight: 700;">${applicantData.takipKodu}</span></td>
           </tr>
         </table>
+      </div>
+
+      <!-- NOT UYARISI (Fatura No / Tarih / Takip Kodu'nun hemen altında) -->
+      <div style="padding: 10px 25px; background-color: #fef2f2; border-bottom: 1px solid #fecaca;">
+        <p style="margin: 0; color: #991b1b; font-size: 12px; font-weight: 700; text-align: center;">
+          ⚠️ NOT: Fatura bilgilerini kontrol edin ve hata varsa bildirin.
+        </p>
       </div>
 
       <!-- CUSTOMER & APPLICATION INFO -->
@@ -944,7 +1104,10 @@ const sendProformaInvoiceEmail = async (to: string, applicantData: any) => {
           <tbody>
             <tr style="border-bottom: 1px solid #e2e8f0;">
               <td style="padding: 10px; text-align: center; color: #64748b;">1</td>
-              <td style="padding: 10px; font-weight: 600; color: #0f172a;">${applicantData.ulke || ''} Vize Başvuru Danışmanlık Hizmet Bedeli</td>
+              <td style="padding: 10px; font-weight: 600; color: #0f172a;">
+                <div>${applicantData.ulke || ''} Vize Başvuru Danışmanlık Hizmet Bedeli</div>
+                <div style="font-size: 11px; color: #64748b; font-weight: 400; margin-top: 2px;">Konsolosluk randevusu, evrak incelemesi ve dosya hazırlama danışmanlık hizmeti.</div>
+              </td>
               <td style="padding: 10px; text-align: center; color: #475569;">1 Adet</td>
               <td style="padding: 10px; text-align: right; font-family: monospace;">${formattedNet} ${symbol}</td>
               <td style="padding: 10px; text-align: center; color: #475569;">%20</td>
@@ -953,10 +1116,13 @@ const sendProformaInvoiceEmail = async (to: string, applicantData: any) => {
             ${calc.konsoloslukUcreti > 0 ? `
             <tr style="border-bottom: 1px solid #e2e8f0; background-color: #f8fafc;">
               <td style="padding: 10px; text-align: center; color: #64748b;">2</td>
-              <td style="padding: 10px; font-weight: 600; color: #0f172a;">${applicantData.ulke || ''} Konsolosluk Harcı / Ücreti (KDV İstisnası)</td>
+              <td style="padding: 10px; font-weight: 600; color: #0f172a;">
+                <div>${applicantData.ulke || ''} Konsolosluk Harcı / Ücreti</div>
+                <div style="font-size: 11px; color: #64748b; font-weight: 400; margin-top: 2px;">Resmi konsolosluk ve başvuru merkezi harç tutarı (KDV'den İstisna).</div>
+              </td>
               <td style="padding: 10px; text-align: center; color: #475569;">1 Adet</td>
               <td style="padding: 10px; text-align: right; font-family: monospace;">${formattedKons} ${symbol}</td>
-              <td style="padding: 10px; text-align: center; color: #475569;">%0</td>
+              <td style="padding: 10px; text-align: center; color: #475569;">%0 (İstisna)</td>
               <td style="padding: 10px; text-align: right; font-weight: 700; font-family: monospace;">${formattedKons} ${symbol}</td>
             </tr>
             ` : ''}
@@ -975,7 +1141,7 @@ const sendProformaInvoiceEmail = async (to: string, applicantData: any) => {
             <td style="padding: 6px 0; text-align: right; font-family: monospace; font-weight: 600; color: #0f172a;">${formattedNet} ${symbol}</td>
           </tr>
           <tr style="background-color: ${musteriTipi === 'Bireysel' ? '#fef3c7' : '#f8fafc'}; border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0;">
-            <td style="padding: 8px 10px; font-weight: 700; color: #0f172a;">KDV HARİÇ TUTAR (Bireysel İşlem):</td>
+            <td style="padding: 8px 10px; font-weight: 700; color: #0f172a;">KDV HARİÇ TUTAR:</td>
             <td style="padding: 8px 10px; text-align: right; font-family: monospace; font-weight: 800; font-size: 14px; color: #0f172a;">${formattedKdvHaric} ${symbol}</td>
           </tr>
           <tr>
@@ -983,26 +1149,24 @@ const sendProformaInvoiceEmail = async (to: string, applicantData: any) => {
             <td style="padding: 6px 0; text-align: right; font-family: monospace; font-weight: 600; color: #0f172a;">+${formattedKdv} ${symbol}</td>
           </tr>
           <tr style="background-color: ${musteriTipi === 'Kurumsal' ? '#ffe4e6' : '#fff1f2'}; border-top: 2px solid #0f172a;">
-            <td style="padding: 10px; font-weight: 800; font-size: 14px; color: #be123c;">KDV DAHİL TOPLAM TUTAR (Kurumsal İşlem):</td>
+            <td style="padding: 10px; font-weight: 800; font-size: 14px; color: #be123c;">KDV DAHİL TOPLAM TUTAR:</td>
             <td style="padding: 10px; text-align: right; font-family: monospace; font-weight: 900; font-size: 17px; color: #be123c;">${formattedTotal} ${symbol}</td>
           </tr>
         </table>
 
-        <!-- BİLGİLENDİRME KUTUSU -->
-        <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 15px; margin-bottom: 15px; font-size: 12px; color: #92400e;">
-          <p style="margin: 0 0 8px 0; font-weight: 800; font-size: 13px; color: #78350f;">💡 BİREYSEL VE KURUMSAL ÖDEME BİLGİLENDİRMESİ</p>
-          <ul style="margin: 0; padding-left: 18px; line-height: 1.6;">
-            <li style="margin-bottom: 4px;"><strong>Bireysel / KDV Hariç İşlemler:</strong> Taban tutar olan <strong style="color: #451a03;">${formattedKdvHaric} ${symbol}</strong> ödenmektedir.</li>
-            <li><strong>Kurumsal / KDV Dahil İşlemler:</strong> Konsolosluk harcı (${formattedKons} ${symbol}) KDV'den muaf tutularak, yalnızca ${formattedNet} ${symbol} hizmet bedeline %${calc.kdvOrani} KDV (+${formattedKdv} ${symbol}) eklenmekte ve KDV dahil genel toplam <strong style="color: #9f1239;">${formattedTotal} ${symbol}</strong> ödenmektedir.</li>
-          </ul>
-        </div>
+        ${bankAccountsHtml}
 
-        <!-- NOT UYARISI -->
-        <div style="padding: 12px; background-color: #fef2f2; border-left: 4px solid #ef4444; border-radius: 6px;">
-          <p style="margin: 0; color: #991b1b; font-size: 12px; font-weight: 700; text-align: center;">
-            ⚠️ NOT: Fatura bilgilerini kontrol edin ve hata varsa bildirin.
+        ${applicantData.notlar && applicantData.notlar.trim().length > 0 ? `
+        <!-- NOTLAR / ÖZEL İSTEKLER -->
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 15px; margin-bottom: 15px; font-size: 12px; color: #334155;">
+          <p style="margin: 0 0 6px 0; font-weight: 800; font-size: 12px; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px;">
+            📝 NOTLAR / ÖZEL İSTEKLER
+          </p>
+          <p style="margin: 0; line-height: 1.5; white-space: pre-wrap; font-weight: 500;">
+            ${applicantData.notlar.trim()}
           </p>
         </div>
+        ` : ''}
 
       </div>
 
@@ -1134,15 +1298,10 @@ async function startServer() {
     fs.appendFileSync(STARTUP_LOG, `VERİTABANI DOSYASI YAZILAMAZ: ${e}\n`);
   }
 
-  // Session configuration
+  // Session configuration (SQLite backed - Zero file lock / EPERM issues)
   fs.appendFileSync(STARTUP_LOG, "Session middleware yapılandırılıyor...\n");
   app.use(session({
-    store: new FileStore({
-      path: path.join(process.cwd(), 'sessions'),
-      ttl: 30 * 24 * 60 * 60,
-      reapInterval: 3600,
-      retries: 5
-    }) as any,
+    store: new SqliteSessionStore(),
     secret: 'mkm-vize-secret-key-2024',
     resave: false,
     saveUninitialized: false,
@@ -2344,7 +2503,8 @@ async function startServer() {
         support_phone: settings.support_phone,
         support_email: settings.support_email,
         support_website: settings.support_website,
-        support_hq_address: settings.support_hq_address
+        support_hq_address: settings.support_hq_address,
+        bank_accounts: settings.bank_accounts || '[]'
       });
     }
 
@@ -2362,7 +2522,8 @@ async function startServer() {
       'reminder_expiry_days', 'admin_weekly_report_enabled', 'admin_report_email',
       'show_commissions_to_users', 'manual_commission_rates', 'smtp_host',
       'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_from', 'default_vat_rate', 'is_email_active',
-      'status_change_notify_enabled', 'support_phone', 'support_email', 'support_website', 'support_hq_address'
+      'status_change_notify_enabled', 'support_phone', 'support_email', 'support_website', 'support_hq_address',
+      'bank_accounts'
     ];
 
     fields.forEach(field => {
@@ -2562,38 +2723,13 @@ async function startServer() {
   // Statik dosyaları servis et (Logolar vb.)
   app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
-  // Vite middleware
-  if (process.env.NODE_ENV !== "production") {
-    console.log("Vite middleware başlatılıyor...");
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-    console.log("Vite middleware başlatıldı.");
-  } else {
-    const distPath = path.resolve(process.cwd(), "dist");
-    
-    // Önce statik dosyaları servis et
-    app.use(express.static(distPath, { index: false }));
-    
-    // API dışındaki tüm GET isteklerini index.html'e yönlendir
-    app.get("*", (req, res) => {
-      // API istekleri için HTML dönmesini engelle
-      if (req.originalUrl.includes('/api/') || req.path.startsWith('/api')) {
-        return res.status(404).json({ 
-          error: "MKM-SYSTEM: API rotasi Fallback katmaninda yakalandi.", 
-          path: req.path,
-          originalUrl: req.originalUrl,
-          method: req.method
-        });
-      }
-      res.sendFile(path.join(distPath, "index.html"));
-    });
-  }
-
   // Otomatik Hatırlatıcılar ve Raporlar
   const runAutoReminders = async () => {
+    // Süresi dolmuş oturumları temizle
+    try {
+      db.prepare("DELETE FROM sessions WHERE expired < ?").run(Date.now());
+    } catch (e) {}
+
     console.log("-----------------------------------------");
     console.log(`Otomatik hatırlatıcılar kontrol ediliyor... (${new Date().toLocaleString('tr-TR')})`);
     
@@ -2960,6 +3096,34 @@ async function startServer() {
       fullUrl: req.originalUrl
     });
   });
+
+  if (process.env.NODE_ENV !== "production") {
+    try {
+      const { createServer: createViteServer } = await import("vite");
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } catch (e) {
+      console.error("Vite dev middleware error:", e);
+    }
+  } else {
+    // Static frontend serving in production / dist
+    const distPath = path.resolve(process.cwd(), "dist");
+    if (fs.existsSync(distPath)) {
+      app.use(express.static(distPath));
+      app.get("*", (req, res, next) => {
+        if (req.path.startsWith("/api")) return next();
+        const indexPath = path.join(distPath, "index.html");
+        if (fs.existsSync(indexPath)) {
+          res.sendFile(indexPath);
+        } else {
+          next();
+        }
+      });
+    }
+  }
 
   // iisnode/Plesk desteği için hostname parametresini dinamik yönetiyoruz.
   // Eğer PORT bir named pipe ise (sayı değilse), hostname parametresi kullanılmamalıdır.

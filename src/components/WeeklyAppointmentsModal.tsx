@@ -69,25 +69,25 @@ export default function WeeklyAppointmentsModal({ isOpen, onClose, applicants, o
     }
   };
 
-  if (!isOpen) return null;
-
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-        <motion.div
+      {isOpen && (
+        <motion.div 
+          key="weekly-appointments-overlay"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
           onClick={onClose}
-          className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
-        />
-        
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9, y: 20 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.9, y: 20 }}
-          className={`relative w-full max-w-5xl max-h-[90vh] ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} rounded-[32px] shadow-2xl border overflow-hidden flex flex-col`}
         >
+          <motion.div
+            key="weekly-appointments-content"
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+            onClick={(e) => e.stopPropagation()}
+            className={`relative w-full max-w-5xl max-h-[90vh] ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} rounded-[32px] shadow-2xl border overflow-hidden flex flex-col`}
+          >
           {/* Header */}
           <motion.div 
             drag="x"
@@ -213,7 +213,8 @@ export default function WeeklyAppointmentsModal({ isOpen, onClose, applicants, o
             <p className={`text-[10px] uppercase font-black tracking-[0.2em] ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>MKM VİZE RANDEVU BİLGİ SİSTEMİ</p>
           </div>
         </motion.div>
-      </div>
+      </motion.div>
+      )}
     </AnimatePresence>
   );
 }

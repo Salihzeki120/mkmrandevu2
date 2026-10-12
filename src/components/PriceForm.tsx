@@ -97,7 +97,7 @@ export default function PriceForm({ price, countries, onClose, onSave, defaultVa
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-semibold text-slate-700">Para Birimi</label>
+              <label className="text-sm font-semibold text-slate-700">Para Birimi (KUR)</label>
               <select 
                 required 
                 name="currency" 
@@ -115,7 +115,7 @@ export default function PriceForm({ price, countries, onClose, onSave, defaultVa
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-sm font-semibold text-slate-700">Konsolosluk Ücreti ({symbol})</label>
+              <label className="text-sm font-semibold text-slate-700">Konsolosluk Harcı ({symbol}) <span className="text-[10px] text-slate-400 font-normal">(KDV İstisna)</span></label>
               <input 
                 type="number" 
                 required 
@@ -126,7 +126,7 @@ export default function PriceForm({ price, countries, onClose, onSave, defaultVa
               />
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-semibold text-slate-700">Hizmet Bedeli ({symbol})</label>
+              <label className="text-sm font-semibold text-slate-700">Hizmet Bedeli ({symbol}) <span className="text-[10px] text-slate-400 font-normal">(KDV Matrahı)</span></label>
               <input 
                 type="number" 
                 required 
@@ -136,6 +136,16 @@ export default function PriceForm({ price, countries, onClose, onSave, defaultVa
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none" 
               />
             </div>
+          </div>
+
+          <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 flex justify-between items-center">
+            <div>
+              <p className="text-xs font-bold text-slate-700">ÜCRET YP (KDV Hariç Tutar / Bireysel İşlem)</p>
+              <p className="text-[10px] text-slate-500">Konsolosluk Harcı + Hizmet Bedeli</p>
+            </div>
+            <span className="text-base font-black text-slate-900">
+              {((formData.konsoloslukUcreti || 0) + (formData.hizmetBedeli || 0)).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} {symbol}
+            </span>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -151,20 +161,23 @@ export default function PriceForm({ price, countries, onClose, onSave, defaultVa
               />
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-semibold text-slate-700">KDV Tutarı ({symbol})</label>
+              <label className="text-sm font-semibold text-slate-700">YP KDV ({symbol}) <span className="text-[10px] text-slate-400 font-normal">(KDV Tutarı)</span></label>
               <input 
                 type="number" 
                 readOnly
                 name="kdv" 
                 value={formData.kdv?.toFixed(2)} 
-                className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl outline-none cursor-not-allowed text-slate-500" 
+                className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl outline-none cursor-not-allowed text-slate-600 font-bold" 
               />
             </div>
           </div>
 
-          <div className="p-4 bg-brand-50 rounded-2xl border border-brand-100 flex justify-between items-center">
-            <span className="text-sm font-bold text-brand-600 uppercase tracking-widest">Toplam</span>
-            <span className="text-xl font-black text-brand-700">{(formData.toplam || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} {symbol}</span>
+          <div className="p-4 bg-rose-50 rounded-2xl border border-rose-200 flex justify-between items-center">
+            <div>
+              <p className="text-xs font-black text-rose-800 uppercase">KDV DAHİL TOPLAM TUTAR (Kurumsal İşlem / Toplam YP)</p>
+              <p className="text-[10px] text-rose-600">Firma Faturalı Toplam Tutar</p>
+            </div>
+            <span className="text-xl font-black text-rose-700">{(formData.toplam || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} {symbol}</span>
           </div>
 
           <div className="flex items-center gap-4 pt-4">

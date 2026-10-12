@@ -87,17 +87,23 @@ export default function FinancialSummaryModal({ isOpen, onClose, applicants, acc
     { name: 'Bekleyen Alacak', value: totalPendingSum, color: '#f59e0b' },
   ];
 
-  if (!isOpen) return null;
-
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 20 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh]"
+      {isOpen && (
+        <motion.div 
+          key="financial-summary-overlay"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
         >
+          <motion.div
+            key="financial-summary-content"
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+            className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh]"
+          >
           {/* Header */}
           <div className="bg-[#2c3e50] p-4 text-center relative shrink-0">
             <h2 className="text-white text-sm md:text-xl font-bold tracking-widest uppercase">
@@ -202,7 +208,8 @@ export default function FinancialSummaryModal({ isOpen, onClose, applicants, acc
             </div>
           </div>
         </motion.div>
-      </div>
+      </motion.div>
+      )}
     </AnimatePresence>
   );
 }

@@ -29,9 +29,6 @@ export default function ApplicantForm({ applicant, initialData, countries, price
     date: new Date().toISOString().split('T')[0],
     description: ''
   });
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchError, setSearchError] = useState('');
   const [formFields, setFormFields] = useState<any[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
   const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
@@ -159,33 +156,6 @@ export default function ApplicantForm({ applicant, initialData, countries, price
 
   const autoCenter = getAutoCenter(formData.ulke, formData.ikametSehri);
   const isAutoDetermined = !!autoCenter;
-
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
-    setIsSearching(true);
-    setSearchError('');
-    try {
-      const res = await fetch(`/api/applicants/${searchQuery}`, {
-        credentials: 'include'
-      });
-      const data = await res.json();
-      if (data.error) {
-        setSearchError('Kayıt bulunamadı.');
-      } else {
-        const processedData = {
-          ...data,
-          timeline: typeof data.timeline === 'string' ? JSON.parse(data.timeline) : (data.timeline || []),
-          documents: typeof data.documents === 'string' ? JSON.parse(data.documents) : (data.documents || [])
-        };
-        setFormData(prev => ({ ...prev, ...processedData }));
-        setSearchError('');
-      }
-    } catch (error) {
-      setSearchError('Arama sırasında bir hata oluştu.');
-    } finally {
-      setIsSearching(false);
-    }
-  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -392,31 +362,10 @@ export default function ApplicantForm({ applicant, initialData, countries, price
 
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
           {activeTab === 'info' && (
-            <form onSubmit={handleSubmit} className="space-y-8">
-              {!applicant && (
-                <div className={`p-6 ${darkMode ? 'bg-slate-900/50 border border-slate-700' : 'bg-slate-50 border border-slate-300'} rounded-2xl space-y-3`}>
-                  <label className={`text-sm font-bold ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Kayıt Bul / Getir (Takip Kodu veya Soyadı)</label>
-                  <div className="flex gap-3">
-                    <input 
-                      type="text" 
-                      placeholder="Kod veya Soyadı giriniz..." 
-                      className={`flex-1 px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none`}
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSearch())}
-                    />
-                    <button 
-                      type="button"
-                      onClick={handleSearch}
-                      disabled={isSearching}
-                      className="px-6 py-2.5 bg-brand-600 text-white font-bold rounded-xl hover:bg-brand-700 transition-all disabled:opacity-50 flex items-center gap-2"
-                    >
-                      {isSearching ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Sorgula'}
-                    </button>
-                  </div>
-                  {searchError && <p className="text-xs font-bold text-rose-600">{searchError}</p>}
-                </div>
-              )}
+            <form onSubmit={handleSubmit} autoComplete="off" className="space-y-8">
+              {/* Browser autofill blocker dummy inputs */}
+              <input type="text" name="fake_user_prevent_autofill" style={{ display: 'none' }} tabIndex={-1} autoComplete="off" />
+              <input type="password" name="fake_pwd_prevent_autofill" style={{ display: 'none' }} tabIndex={-1} autoComplete="off" />
 
               <section className={`p-6 ${darkMode ? 'bg-slate-900/30 border border-slate-700/50' : 'bg-slate-50/50 border border-slate-200'} rounded-2xl`}>
                 <div className="flex items-center gap-2 mb-4 border-b pb-2 border-slate-100/50">
@@ -429,7 +378,7 @@ export default function ApplicantForm({ applicant, initialData, countries, price
                     <label className={`text-sm font-semibold flex items-center gap-1 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>
                       Ad <span className="text-rose-500 font-bold">*</span>
                     </label>
-                    <input required name="ad" value={formData.ad || ''} onChange={handleChange} className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all`} />
+                    <input required name="ad" value={formData.ad || ''} onChange={handleChange} autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all`} />
                   </div>
 
                   {/* Soyad */}
@@ -437,7 +386,7 @@ export default function ApplicantForm({ applicant, initialData, countries, price
                     <label className={`text-sm font-semibold flex items-center gap-1 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>
                       Soyad <span className="text-rose-500 font-bold">*</span>
                     </label>
-                    <input required name="soyad" value={formData.soyad || ''} onChange={handleChange} className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all`} />
+                    <input required name="soyad" value={formData.soyad || ''} onChange={handleChange} autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all`} />
                   </div>
 
                   {/* Müşteri Türü / İşlem Tipi */}
@@ -462,7 +411,18 @@ export default function ApplicantForm({ applicant, initialData, countries, price
                     <label className={`text-sm font-semibold flex items-center gap-1 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>
                       E-posta <span className="text-rose-500 font-bold">*</span>
                     </label>
-                    <input type="email" required name="email" value={formData.email || ''} onChange={handleChange} className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all`} />
+                    <input 
+                      type="email" 
+                      required 
+                      name="email" 
+                      value={formData.email || ''} 
+                      onChange={handleChange} 
+                      autoComplete="new-password" 
+                      autoCorrect="off" 
+                      autoCapitalize="none"
+                      spellCheck={false} 
+                      className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all`} 
+                    />
                   </div>
 
                   {/* Vize Kategorisi */}
@@ -529,19 +489,19 @@ export default function ApplicantForm({ applicant, initialData, countries, price
                   {/* Doğum Tarihi */}
                   <div className="space-y-1">
                     <label className={`text-sm font-semibold ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Doğum Tarihi</label>
-                    <input type="date" name="dogumTarihi" value={formData.dogumTarihi || ''} onChange={handleChange} className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-solid border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all`} />
+                    <input type="date" name="dogumTarihi" value={formData.dogumTarihi || ''} onChange={handleChange} autoComplete="off" className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-solid border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all`} />
                   </div>
 
                   {/* Pasaport No */}
                   <div className="space-y-1">
                     <label className={`text-sm font-semibold ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Pasaport No</label>
-                    <input name="pasaportNo" value={formData.pasaportNo || ''} onChange={handleChange} className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-solid border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all`} />
+                    <input name="pasaportNo" value={formData.pasaportNo || ''} onChange={handleChange} autoComplete="off" autoCorrect="off" spellCheck={false} className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-solid border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all`} />
                   </div>
 
                   {/* Pasaport SKT */}
                   <div className="space-y-1">
                     <label className={`text-sm font-semibold ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Pasaport SKT</label>
-                    <input type="date" name="pasaportSkt" value={formData.pasaportSkt || ''} onChange={handleChange} className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-solid border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all`} />
+                    <input type="date" name="pasaportSkt" value={formData.pasaportSkt || ''} onChange={handleChange} autoComplete="off" className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-solid border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all`} />
                   </div>
 
                   {/* Firma Adı */}
@@ -558,6 +518,8 @@ export default function ApplicantForm({ applicant, initialData, countries, price
                         onFocus={() => setShowCompanyDropdown(true)}
                         onClick={() => setShowCompanyDropdown(true)}
                         autoComplete="off"
+                        autoCorrect="off"
+                        spellCheck={false}
                         className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-solid border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none font-bold`} 
                       />
                       <AnimatePresence>
@@ -580,11 +542,10 @@ export default function ApplicantForm({ applicant, initialData, countries, price
                                   key={company.id}
                                   type="button"
                                   onClick={() => {
-                                    setFormData({ 
-                                      ...formData, 
-                                      firmaAdi: company.acente_adi || company.firma_unvani,
-                                      email: company.email || formData.email
-                                    });
+                                    setFormData(prev => ({ 
+                                      ...prev, 
+                                      firmaAdi: company.acente_adi || company.firma_unvani
+                                    }));
                                     setShowCompanyDropdown(false);
                                   }}
                                   className={`w-full text-left px-4 py-3 text-sm font-bold transition-all ${darkMode ? 'hover:bg-slate-700 text-white border-b border-white/5' : 'hover:bg-white text-slate-800 border-b border-slate-100'}`}
@@ -631,7 +592,7 @@ export default function ApplicantForm({ applicant, initialData, countries, price
                         {onOpenProforma && (
                           <button
                             type="button"
-                            onClick={() => onOpenProforma((applicant || formData) as Applicant)}
+                            onClick={() => onOpenProforma(formData as Applicant)}
                             className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-extrabold text-xs transition-colors shrink-0 flex items-center gap-1 shadow-sm"
                           >
                             <FileText size={14} />
@@ -642,18 +603,6 @@ export default function ApplicantForm({ applicant, initialData, countries, price
                     )}
                   </div>
 
-                  {/* Randevu Tarihi */}
-                  <div className="space-y-1">
-                    <label className={`text-sm font-semibold ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Randevu Tarihi</label>
-                    <input type="date" name="randevuTarihi" value={formData.randevuTarihi || ''} onChange={handleChange} className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-solid border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all`} />
-                  </div>
-
-                  {/* Randevu Saati */}
-                  <div className="space-y-1">
-                    <label className={`text-sm font-semibold ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Randevu Saati</label>
-                    <input type="time" name="saat" value={formData.saat || ''} onChange={handleChange} className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-solid border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all`} />
-                  </div>
-
                   {/* Ödeme Durumu */}
                   <div className="space-y-1">
                     <label className={`text-sm font-semibold ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Ödeme Durumu</label>
@@ -662,13 +611,67 @@ export default function ApplicantForm({ applicant, initialData, countries, price
                     </select>
                   </div>
 
+                  {/* Tamamlandı Seçildiğinde Hemen Altına Gelen Vize Sonuç Bilgisi */}
+                  {formData.islemDurumu === 'Tamamlandı' && (
+                    <div className="col-span-1 md:col-span-2 p-5 bg-brand-50/80 dark:bg-brand-950/40 border-2 border-brand-200 dark:border-brand-800/50 rounded-2xl space-y-4 animate-in fade-in duration-200">
+                      <div className="flex items-center gap-2 border-b border-brand-200/60 pb-2">
+                        <FileText className="text-brand-600 w-4 h-4" />
+                        <h4 className="text-xs font-bold text-brand-700 dark:text-brand-300 uppercase tracking-widest">3. Vize Sonuç Bilgisi</h4>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <label className={`text-sm font-semibold ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Vize Sonucu</label>
+                          <select 
+                            name="vizeSonucu" 
+                            value={formData.vizeSonucu || ''} 
+                            onChange={handleChange} 
+                            className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none font-bold`}
+                          >
+                            <option value="">Seçiniz...</option>
+                            {RESULT_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                          </select>
+                        </div>
+                        {formData.vizeSonucu === 'Onaylandı' && (
+                          <div className="space-y-1">
+                            <label className={`text-sm font-semibold ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Vize Geçerlilik Tarihi</label>
+                            <input 
+                              type="date" 
+                              name="vizeGecerlilikTarihi" 
+                              value={formData.vizeGecerlilikTarihi || ''} 
+                              onChange={handleChange} 
+                              autoComplete="off" 
+                              className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none font-bold`} 
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Randevu Bilgileri (Tamamlandı dışındaki durumlarda, özellikle Randevu Alındı seçildiğinde gösterilir) */}
+                  {formData.islemDurumu !== 'Tamamlandı' && (
+                    <>
+                      {/* Randevu Tarihi */}
+                      <div className="space-y-1">
+                        <label className={`text-sm font-semibold ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Randevu Tarihi</label>
+                        <input type="date" name="randevuTarihi" value={formData.randevuTarihi || ''} onChange={handleChange} autoComplete="off" className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-solid border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all`} />
+                      </div>
+
+                      {/* Randevu Saati */}
+                      <div className="space-y-1">
+                        <label className={`text-sm font-semibold ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Randevu Saati</label>
+                        <input type="time" name="saat" value={formData.saat || ''} onChange={handleChange} autoComplete="off" className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-solid border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all`} />
+                      </div>
+                    </>
+                  )}
+
                   {/* Başvuru Merkezi */}
                   <div className="space-y-1 md:col-span-2">
                     <label className={`text-sm font-semibold ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Başvuru Merkezi</label>
                     <select 
                       name="basvuruMerkezi" 
                       value={formData.basvuruMerkezi || ''} 
-                      onChange={handleChange}
+                      onChange={handleChange} 
                       disabled={!formData.ulke}
                       className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none disabled:opacity-50 disabled:cursor-not-allowed font-bold transition-all`}
                     >
@@ -695,6 +698,9 @@ export default function ApplicantForm({ applicant, initialData, countries, price
                           name="merkezAdresi"
                           value={formData.merkezAdresi || ''}
                           onChange={handleChange}
+                          autoComplete="off"
+                          autoCorrect="off"
+                          spellCheck={false}
                           placeholder="Başvuru merkezi adresini buraya yazabilirsiniz..."
                           className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none`}
                         />
@@ -711,7 +717,7 @@ export default function ApplicantForm({ applicant, initialData, countries, price
               <section className={`p-6 ${darkMode ? 'bg-slate-900/20 border border-slate-700/50' : 'bg-slate-50/10 border border-slate-300'} rounded-2xl`}>
                 <div className="flex items-center gap-2 mb-4 border-b pb-2 border-slate-100/50">
                   <FileSearch className="text-brand-600 w-4 h-4" />
-                  <h4 className={`text-xs font-bold ${darkMode ? 'text-slate-200' : 'text-slate-800'} uppercase tracking-widest`}>3. Ücret & Finansal Detaylar</h4>
+                  <h4 className={`text-xs font-bold ${darkMode ? 'text-slate-200' : 'text-slate-800'} uppercase tracking-widest`}>Ücret & Finansal Detaylar</h4>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {/* Konsolosluk Ücreti */}
@@ -722,6 +728,7 @@ export default function ApplicantForm({ applicant, initialData, countries, price
                         type="number" 
                         name="konsoloslukUcreti" 
                         value={formData.konsoloslukUcreti || 0} 
+                        autoComplete="off"
                         onChange={(e) => {
                           const val = Number(e.target.value);
                           setFormData(prev => {
@@ -752,6 +759,7 @@ export default function ApplicantForm({ applicant, initialData, countries, price
                         type="number" 
                         name="hizmetBedeli" 
                         value={formData.hizmetBedeli || 0} 
+                        autoComplete="off"
                         onChange={(e) => {
                           const val = Number(e.target.value);
                           setFormData(prev => {
@@ -783,6 +791,7 @@ export default function ApplicantForm({ applicant, initialData, countries, price
                         name="fiyat" 
                         value={formData.fiyat || 0} 
                         onChange={handleChange} 
+                        autoComplete="off"
                         className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none font-bold text-brand-600`} 
                       />
                       <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">
@@ -793,30 +802,9 @@ export default function ApplicantForm({ applicant, initialData, countries, price
                 </div>
               </section>
 
-              {formData.islemDurumu === 'Tamamlandı' && (
-                <section className={`p-6 ${darkMode ? 'bg-brand-900/20 border-brand-900/30' : 'bg-brand-50 border-brand-100'} rounded-2xl border`}>
-                  <h4 className="text-xs font-bold text-brand-600 uppercase tracking-widest mb-4">3. Vize Sonuç Bilgisi</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-1">
-                      <label className={`text-sm font-semibold ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Vize Sonucu</label>
-                      <select name="vizeSonucu" value={formData.vizeSonucu} onChange={handleChange} className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none`}>
-                        <option value="">Seçiniz...</option>
-                        {RESULT_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
-                      </select>
-                    </div>
-                    {formData.vizeSonucu === 'Onaylandı' && (
-                      <div className="space-y-1">
-                        <label className={`text-sm font-semibold ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Vize Geçerlilik Tarihi</label>
-                        <input type="date" name="vizeGecerlilikTarihi" value={formData.vizeGecerlilikTarihi} onChange={handleChange} className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none`} />
-                      </div>
-                    )}
-                  </div>
-                </section>
-              )}
-
               <div className="space-y-1">
                 <label className={`text-sm font-semibold ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Notlar / Özel İstekler</label>
-                <textarea name="notlar" value={formData.notlar} onChange={handleChange} rows={3} className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none`} placeholder="Müşteri notlarını buraya ekleyin..." />
+                <textarea name="notlar" value={formData.notlar} onChange={handleChange} rows={3} autoComplete="off" autoCorrect="off" spellCheck={false} className={`w-full px-4 py-2.5 ${darkMode ? 'bg-slate-800 border border-slate-700 text-white' : 'bg-white border border-slate-300'} rounded-xl focus:ring-2 focus:ring-brand-500 outline-none`} placeholder="Müşteri notlarını buraya ekleyin..." />
               </div>
 
               {formFields.length > 0 && (
@@ -838,6 +826,9 @@ export default function ApplicantForm({ applicant, initialData, countries, price
                             type={field.type}
                             required={field.required}
                             value={formData.extra_fields?.[field.id] || ''}
+                            autoComplete="off"
+                            autoCorrect="off"
+                            spellCheck={false}
                             onChange={(e) => setFormData({
                               ...formData,
                               extra_fields: {

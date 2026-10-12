@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { X, Printer, Download, FileText, Building2, User, Calendar, CheckCircle2, AlertCircle, Edit3, Mail, Loader2 } from 'lucide-react';
-import { Applicant, AccountingRecord, CountryPrice } from '../types';
+import React, { useState, useEffect } from 'react';
+import { X, Printer, Download, FileText, Building2, User, Calendar, CheckCircle2, AlertCircle, Edit3, Mail, Loader2, CreditCard } from 'lucide-react';
+import { Applicant, AccountingRecord, CountryPrice, BankAccount } from '../types';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { getCurrencyForCountry, getCurrencySymbol } from '../constants';
@@ -17,6 +17,25 @@ interface Props {
 export default function ProformaInvoiceModal({ applicant, accountingRecord, prices, onClose, onEditAccounting }: Props) {
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailStatus, setEmailStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+
+  useEffect(() => {
+    fetch('/api/settings')
+      .then(res => res.json())
+      .then(data => {
+        if (data.bank_accounts) {
+          try {
+            const parsed = JSON.parse(data.bank_accounts);
+            if (Array.isArray(parsed)) {
+              setBankAccounts(parsed.filter((b: BankAccount) => b.isActive !== false));
+            }
+          } catch (e) {
+            console.error('Banka hesapları ayrıştırılamadı:', e);
+          }
+        }
+      })
+      .catch(err => console.error('Ayarlar çekilemedi:', err));
+  }, []);
 
   // Hesaplama değerleri
   const countryPrice = prices?.find(p => p.ulke === applicant.ulke);
@@ -29,7 +48,7 @@ export default function ProformaInvoiceModal({ applicant, accountingRecord, pric
     applicant.konsoloslukUcreti ?? countryPrice?.konsoloslukUcreti ?? 0,
     applicant.hizmetBedeli ?? countryPrice?.hizmetBedeli,
     applicant.kdvOrani ?? countryPrice?.kdvOrani ?? 20,
-    accountingRecord?.toplam || applicant.fiyat || countryPrice?.toplam
+    applicant.fiyat || countryPrice?.toplam || accountingRecord?.toplam
   );
 
   const konsoloslukHarci = calc.konsoloslukUcreti;
@@ -115,37 +134,46 @@ export default function ProformaInvoiceModal({ applicant, accountingRecord, pric
     doc.text(trToEn(`Tarih: ${formatDateString(faturaTarihi)}`), 196, 31, { align: 'right' });
     doc.text(trToEn(`Takip Kodu: ${applicant.takipKodu}`), 196, 36, { align: 'right' });
 
+    // NOT / UYARI (Fatura No / Tarih / Takip Kodu'nun hemen altına)
+    doc.setFillColor(254, 242, 242); // rose-50
+    doc.setDrawColor(254, 205, 211); // rose-200
+    doc.roundedRect(14, 39, 182, 7, 1.5, 1.5, 'FD');
+
+    doc.setFontSize(8);
+    doc.setTextColor(190, 18, 60); // rose-700
+    doc.text(trToEn("NOT: Fatura bilgilerini kontrol edin ve hata varsa bildirin."), 105, 43.5, { align: 'center' });
+
     // Çizgi
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.5);
-    doc.line(14, 42, 196, 42);
+    doc.line(14, 48, 196, 48);
 
     // Müşteri Bilgileri
     doc.setFontSize(11);
     doc.setTextColor(15, 23, 42);
-    doc.text(trToEn("MUSTERI BILGILERI"), 14, 50);
+    doc.text(trToEn("MUSTERI BILGILERI"), 14, 55);
     doc.setFontSize(10);
     doc.setTextColor(71, 85, 105);
-    doc.text(trToEn(`Sayin: ${applicant.ad} ${applicant.soyad}`), 14, 57);
-    doc.text(trToEn(`Firma / Acente: ${companyName}`), 14, 63);
-    doc.text(trToEn(`Pasaport No: ${applicant.pasaportNo || '-'}`), 14, 69);
-    doc.text(trToEn(`E-posta: ${applicant.email || '-'}`), 14, 75);
+    doc.text(trToEn(`Sayin: ${applicant.ad} ${applicant.soyad}`), 14, 62);
+    doc.text(trToEn(`Firma / Acente: ${companyName}`), 14, 68);
+    doc.text(trToEn(`Pasaport No: ${applicant.pasaportNo || '-'}`), 14, 74);
+    doc.text(trToEn(`E-posta: ${applicant.email || '-'}`), 14, 80);
 
     doc.setFontSize(11);
     doc.setTextColor(15, 23, 42);
-    doc.text(trToEn("BASVURU DETAYLARI"), 110, 50);
+    doc.text(trToEn("BASVURU DETAYLARI"), 110, 55);
     doc.setFontSize(10);
     doc.setTextColor(71, 85, 105);
-    doc.text(trToEn(`Hedef Ulke: ${applicant.ulke}`), 110, 57);
-    doc.text(trToEn(`Vize Kategorisi: ${applicant.vizeKategorisi || 'Turistik Vize'}`), 110, 63);
-    doc.text(trToEn(`Randevu Tarihi: ${applicant.randevuTarihi || '-'} ${applicant.saat || ''}`), 110, 69);
-    doc.text(trToEn(`Odeme Durumu: ${applicant.odemeDurumu}`), 110, 75);
+    doc.text(trToEn(`Hedef Ulke: ${applicant.ulke}`), 110, 62);
+    doc.text(trToEn(`Vize Kategorisi: ${applicant.vizeKategorisi || 'Turistik Vize'}`), 110, 68);
+    doc.text(trToEn(`Randevu Tarihi: ${applicant.randevuTarihi || '-'} ${applicant.saat || ''}`), 110, 74);
+    doc.text(trToEn(`Odeme Durumu: ${applicant.odemeDurumu}`), 110, 80);
 
     // Tablo Gövdeleri
     const tableBody = [];
     tableBody.push([
       '1',
-      trToEn(`${applicant.ulke} Vize Basvuru Danismanlik Hizmet Bedeli`),
+      trToEn(`${applicant.ulke} Vize Basvuru Danismanlik Hizmet Bedeli\n(Konsolosluk randevusu, evrak incelemesi ve dosya hazirlama danismanlik hizmeti.)`),
       '1 Adet',
       `${netTutar.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ${symbol}`,
       `%${kdvOrani}`,
@@ -155,77 +183,114 @@ export default function ProformaInvoiceModal({ applicant, accountingRecord, pric
     if (konsoloslukHarci > 0) {
       tableBody.push([
         '2',
-        trToEn(`${applicant.ulke} Konsolosluk Harci / Ucreti (KDV Istisnasi)`),
+        trToEn(`${applicant.ulke} Konsolosluk Harci / Ucreti\n(Resmi konsolosluk ve basvuru merkezi harc tutari - KDV'den Istisna)`),
         '1 Adet',
         `${konsoloslukHarci.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ${symbol}`,
-        '%0',
+        '%0 (Istisna)',
         `${konsoloslukHarci.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ${symbol}`
       ]);
     }
 
     // Tablo
     autoTable(doc, {
-      startY: 85,
-      head: [[trToEn('#'), trToEn('Hizmet Aciklamasi'), trToEn('Miktar'), trToEn('Birim Fiyat'), trToEn('KDV'), trToEn('Toplam')]],
+      startY: 86,
+      head: [[trToEn('#'), trToEn('Hizmet / Aciklama'), trToEn('Miktar'), trToEn('Birim Fiyat'), trToEn('KDV'), trToEn('Toplam')]],
       body: tableBody,
       theme: 'grid',
       headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold' },
-      styles: { fontSize: 9 },
+      styles: { fontSize: 8.5 },
     });
 
     const finalY = (doc as any).lastAutoTable.finalY || 120;
 
     // Toplamlar Box
-    doc.setFontSize(9.5);
+    doc.setFontSize(9);
     doc.setTextColor(71, 85, 105);
     let yPos = finalY + 12;
 
     if (konsoloslukHarci > 0) {
-      doc.text(trToEn("Konsolosluk Harci (KDV Istisna):"), 88, yPos);
+      doc.text(trToEn("Konsolosluk Harci (KDV Istisnasi):"), 20, yPos);
       doc.text(`${konsoloslukHarci.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ${symbol}`, 196, yPos, { align: 'right' });
       yPos += 6;
     }
 
-    doc.text(trToEn("Hizmet Bedeli (KDV Matrahi):"), 88, yPos);
+    doc.text(trToEn("Hizmet Bedeli (KDV Matrahi):"), 20, yPos);
     doc.text(`${netTutar.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ${symbol}`, 196, yPos, { align: 'right' });
     yPos += 7;
 
-    doc.setFontSize(9.5);
+    doc.setFontSize(9);
     doc.setTextColor(15, 23, 42);
-    doc.text(trToEn("KDV HARIC TUTAR (Bireysel Islem):"), 88, yPos);
+    doc.text(trToEn("KDV HARIC TUTAR:"), 20, yPos);
     doc.text(`${kdvHariçToplam.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ${symbol}`, 196, yPos, { align: 'right' });
     yPos += 6;
 
-    doc.setFontSize(9.5);
+    doc.setFontSize(9);
     doc.setTextColor(71, 85, 105);
-    doc.text(trToEn(`KDV Tutari (%${kdvOrani}):`), 88, yPos);
+    doc.text(trToEn(`KDV Tutari (%${kdvOrani}):`), 20, yPos);
     doc.text(`+${kdv.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ${symbol}`, 196, yPos, { align: 'right' });
     yPos += 8;
 
-    doc.setFontSize(10);
+    doc.setFontSize(9.5);
     doc.setTextColor(225, 29, 72);
-    doc.text(trToEn("KDV DAHIL TOPLAM TUTAR (Kurumsal Islem):"), 88, yPos);
+    doc.text(trToEn("KDV DAHIL TOPLAM TUTAR:"), 20, yPos);
     doc.text(`${total.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ${symbol}`, 196, yPos, { align: 'right' });
 
-    // BILGILENDIRME KUTUSU (FATURA VE ODEME SEÇENEKLERI)
-    doc.setFillColor(254, 252, 232); // amber-50
-    doc.setDrawColor(253, 230, 138); // amber-200
-    doc.roundedRect(14, yPos + 8, 182, 20, 2, 2, 'FD');
+    // BANKA HESAP BİLGİLERİ KUTUSU (PDF)
+    const bankBoxY = yPos + 10;
+    const accountsToPrint = bankAccounts.filter(b => b.isActive !== false);
+    const bankBoxHeight = (accountsToPrint.length > 0 ? 12 + (accountsToPrint.length * 14) : 26) + 8;
 
-    doc.setFontSize(8.5);
-    doc.setTextColor(146, 64, 14); // amber-800
-    doc.text(trToEn("BIREYSEL VE KURUMSAL ODEME TUTARLARI BIKGILENDIRMESI:"), 18, yPos + 14);
-    doc.text(trToEn(`• Bireysel / KDV Hariç Islem Tutari: Taban tutar olan ${kdvHariçToplam.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ${symbol} odenecektir.`), 18, yPos + 19);
-    doc.text(trToEn(`• Kurumsal / KDV Dahil Islem Tutari: KDV dahil toplam ${total.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ${symbol} odenecektir.`), 18, yPos + 24);
+    doc.setFillColor(248, 250, 252); // slate-50
+    doc.setDrawColor(226, 232, 240); // slate-200
+    doc.roundedRect(14, bankBoxY, 182, bankBoxHeight, 2, 2, 'FD');
 
-    // ZORUNLU NOT / UYARI
-    doc.setFillColor(254, 242, 242); // rose-50
-    doc.setDrawColor(254, 205, 211); // rose-200
-    doc.roundedRect(14, yPos + 10, 182, 16, 2, 2, 'FD');
+    doc.setFontSize(9);
+    doc.setTextColor(15, 23, 42); // slate-900
+    doc.text(trToEn("ODEME BILGILERI (HAVALE / EFT):"), 18, bankBoxY + 6);
 
-    doc.setFontSize(10);
-    doc.setTextColor(190, 18, 60); // rose-700
-    doc.text(trToEn("NOT: Fatura bilgilerini kontrol edin ve hata varsa bildirin"), 105, yPos + 20, { align: 'center' });
+    let currentBankY = bankBoxY + 12;
+
+    if (accountsToPrint.length === 0) {
+      doc.setFontSize(8);
+      doc.setTextColor(71, 85, 105);
+      doc.text(trToEn("Banka: Garanti BBVA - Besiktas Subesi"), 18, currentBankY);
+      doc.text(trToEn("IBAN: TR89 0006 2000 0000 1234 5678 90"), 18, currentBankY + 4.5);
+      doc.text(trToEn("Alici: MKM Vize & Danismanlik A.S."), 18, currentBankY + 9);
+      currentBankY += 15;
+    } else {
+      accountsToPrint.forEach((acc) => {
+        doc.setFontSize(8);
+        doc.setTextColor(15, 23, 42);
+        const branchStr = acc.branch ? ` (${acc.branch})` : '';
+        doc.text(trToEn(`Banka: ${acc.bankName}${branchStr} [${acc.currency}]`), 18, currentBankY);
+        doc.text(trToEn(`IBAN: ${acc.iban}`), 18, currentBankY + 4);
+        doc.text(trToEn(`Alici: ${acc.accountHolder}`), 18, currentBankY + 8);
+        currentBankY += 13;
+      });
+    }
+
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(trToEn(`* Odeme aciklamasina lutfen "${applicant.ad} ${applicant.soyad} - ${applicant.takipKodu}" yaziniz.`), 18, currentBankY);
+
+    let nextBoxY = bankBoxY + bankBoxHeight + 6;
+
+    // NOTLAR / ÖZEL İSTEKLER (Eğer varsa)
+    if (applicant.notlar && applicant.notlar.trim().length > 0) {
+      const notesText = trToEn(applicant.notlar.trim());
+      const splitNotes = doc.splitTextToSize(`NOTLAR / OZEL ISTEKLER: ${notesText}`, 174);
+      const notesHeight = Math.max(12, splitNotes.length * 4.5 + 6);
+
+      doc.setFillColor(248, 250, 252); // slate-50
+      doc.setDrawColor(226, 232, 240); // slate-200
+      doc.roundedRect(14, nextBoxY, 182, notesHeight, 2, 2, 'FD');
+
+      doc.setFontSize(8.5);
+      doc.setTextColor(51, 65, 85); // slate-700
+      doc.text(splitNotes, 18, nextBoxY + 6);
+
+      nextBoxY += notesHeight + 6;
+    }
 
     // Alt Bilgi
     doc.setFontSize(8);
@@ -346,6 +411,13 @@ export default function ProformaInvoiceModal({ applicant, accountingRecord, pric
             </div>
           </div>
 
+          {/* WARNING NOTE BANNER RIGHT BELOW FATURA HEADER */}
+          <div className="p-2.5 bg-rose-50/90 rounded-xl border border-rose-200 text-center shadow-2xs">
+            <p className="text-xs font-black text-rose-700 tracking-wide uppercase flex items-center justify-center gap-1.5">
+              ⚠️ NOT: Fatura bilgilerini kontrol edin ve hata varsa bildirin.
+            </p>
+          </div>
+
           {/* Customer & Application Info Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 space-y-1.5">
@@ -384,6 +456,19 @@ export default function ProformaInvoiceModal({ applicant, accountingRecord, pric
               </div>
             </div>
           </div>
+
+          {/* Notlar / Özel İstekler Card */}
+          {applicant.notlar && applicant.notlar.trim().length > 0 && (
+            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 space-y-1">
+              <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5 pb-1 border-b border-slate-200">
+                <FileText size={13} className="text-slate-600" />
+                NOTLAR / ÖZEL İSTEKLER
+              </h3>
+              <p className="text-xs text-slate-700 whitespace-pre-wrap font-medium pt-1">
+                {applicant.notlar}
+              </p>
+            </div>
+          )}
 
           {/* Itemized Invoice Table */}
           <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
@@ -429,12 +514,36 @@ export default function ProformaInvoiceModal({ applicant, accountingRecord, pric
 
           {/* Totals Summary Box */}
           <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pt-1">
-            <div className="w-full sm:w-1/2 space-y-1 text-xs text-slate-500 bg-slate-50 p-3 rounded-xl border border-slate-200">
-              <p className="font-bold text-slate-700 text-[11px]">ÖDEME BİLGİLERİ (HAVALE / EFT)</p>
-              <p className="text-[11px]"><span className="font-semibold">Banka:</span> Garanti BBVA - Beşiktaş Şubesi</p>
-              <p className="text-[11px]"><span className="font-semibold">IBAN:</span> TR89 0006 2000 0000 1234 5678 90</p>
-              <p className="text-[11px]"><span className="font-semibold">Alıcı:</span> MKM Vize & Danışmanlık A.Ş.</p>
-              <p className="text-[11px]"><span className="font-semibold">Açıklama:</span> {applicant.ad} {applicant.soyad} - {applicant.takipKodu}</p>
+            <div className="w-full sm:w-1/2 space-y-2 text-xs text-slate-500 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+              <p className="font-bold text-slate-800 text-[11px] uppercase tracking-wider border-b border-slate-200 pb-1 flex items-center justify-between">
+                <span>ÖDEME BİLGİLERİ (HAVALE / EFT)</span>
+                <span className="text-[10px] text-slate-400 font-semibold font-mono">{bankAccounts.length} Hesap</span>
+              </p>
+              {bankAccounts.length === 0 ? (
+                <div className="space-y-1 text-[11px]">
+                  <p><span className="font-semibold">Banka:</span> Garanti BBVA - Beşiktaş Şubesi</p>
+                  <p><span className="font-semibold">IBAN:</span> TR89 0006 2000 0000 1234 5678 90</p>
+                  <p><span className="font-semibold">Alıcı:</span> MKM Vize & Danışmanlık A.Ş.</p>
+                  <p><span className="font-semibold">Açıklama:</span> {applicant.ad} {applicant.soyad} - {applicant.takipKodu}</p>
+                </div>
+              ) : (
+                <div className="space-y-2.5 pt-0.5">
+                  {bankAccounts.map((account, idx) => (
+                    <div key={account.id || idx} className="space-y-0.5 text-[11px] border-b border-slate-200/60 last:border-b-0 pb-1.5 last:pb-0">
+                      <p className="font-bold text-slate-900 flex items-center justify-between">
+                        <span>{account.bankName} {account.branch ? `(${account.branch})` : ''}</span>
+                        <span className="px-1.5 py-0.2 bg-slate-200 text-slate-800 text-[9px] font-black rounded uppercase">{account.currency}</span>
+                      </p>
+                      <p className="font-mono font-bold text-slate-900 tracking-wider"><span className="font-semibold text-slate-500 font-sans">IBAN:</span> {account.iban}</p>
+                      <p><span className="font-semibold text-slate-500">Alıcı:</span> {account.accountHolder}</p>
+                      {account.swift && <p><span className="font-semibold text-slate-500">SWIFT:</span> <span className="font-mono font-bold">{account.swift}</span></p>}
+                    </div>
+                  ))}
+                  <p className="text-[10px] text-slate-500 font-medium italic pt-1 border-t border-slate-200/60">
+                    * Ödeme açıklamasına lütfen <strong className="text-slate-800 font-bold">{applicant.ad} {applicant.soyad} - {applicant.takipKodu}</strong> yazınız.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="w-full sm:w-80 space-y-2 text-xs">
@@ -449,7 +558,7 @@ export default function ProformaInvoiceModal({ applicant, accountingRecord, pric
                 <span className="font-mono font-bold text-slate-800">{netTutar.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {symbol}</span>
               </div>
               <div className={`border-t border-slate-200 pt-1.5 pb-0.5 flex justify-between font-bold text-slate-900 ${applicant.musteriTipi === 'Bireysel' ? 'bg-amber-100/90 border-2 border-amber-400' : 'bg-slate-100/80'} px-2.5 py-1 rounded-lg`}>
-                <span className="text-[11px] font-extrabold text-slate-800">KDV HARİÇ TUTAR (Bireysel İşlem):</span>
+                <span className="text-[11px] font-extrabold text-slate-800">KDV HARİÇ TUTAR:</span>
                 <span className="font-mono text-xs font-black text-slate-900">{kdvHariçToplam.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {symbol}</span>
               </div>
               <div className="flex justify-between text-slate-600 pt-0.5">
@@ -457,31 +566,10 @@ export default function ProformaInvoiceModal({ applicant, accountingRecord, pric
                 <span className="font-mono font-bold text-slate-800">+{kdv.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {symbol}</span>
               </div>
               <div className={`border-t-2 border-slate-900 pt-1.5 flex justify-between items-baseline ${applicant.musteriTipi === 'Kurumsal' ? 'bg-rose-100/90 border-2 border-rose-500' : 'bg-rose-50/60'} px-2.5 py-1.5 rounded-lg border border-rose-100`}>
-                <span className="font-black text-[11px] text-rose-900 uppercase">KDV DAHİL TOPLAM TUTAR (Kurumsal İşlem):</span>
+                <span className="font-black text-[11px] text-rose-900 uppercase">KDV DAHİL TOPLAM TUTAR:</span>
                 <span className="font-mono font-black text-base text-rose-600">{total.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {symbol}</span>
               </div>
             </div>
-          </div>
-
-          {/* BİREYSEL VE KURUMSAL ÖDEME BİLGİLENDİRMESİ */}
-          <div className="p-3.5 bg-amber-50/90 rounded-xl border border-amber-200 text-xs space-y-1.5">
-            <p className="font-bold text-amber-900 text-xs flex items-center gap-1.5">
-              💡 BİREYSEL VE KURUMSAL ÖDEME BİLGİLENDİRMESİ
-            </p>
-            <div className="text-[11px] text-amber-800 space-y-1 leading-normal">
-              <p>• <strong>Bireysel / KDV Hariç İşlemler:</strong> Taban tutar olan <strong className="text-amber-950 font-mono underline decoration-amber-400">{kdvHariçToplam.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {symbol}</strong> ödenmektedir.</p>
-              <p>• <strong>Kurumsal / KDV Dahil İşlemler:</strong> Konsolosluk harcı ({konsoloslukHarci.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {symbol}) KDV'den muaf tutularak, yalnızca {netTutar.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {symbol} hizmet bedeline %{kdvOrani} KDV (+{kdv.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {symbol}) eklenmekte ve KDV dahil genel toplam <strong className="text-rose-700 font-mono underline decoration-rose-400">{total.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {symbol}</strong> ödenmektedir.</p>
-            </div>
-          </div>
-
-          {/* CRITICAL MANDATORY NOTE AT BOTTOM */}
-          <div className="p-3 bg-rose-50 rounded-xl border border-rose-200 text-center space-y-0.5">
-            <p className="text-xs font-black text-rose-700 tracking-wide uppercase">
-              Fatura bilgilerini kontrol edin ve hata varsa bildirin
-            </p>
-            <p className="text-[10px] text-rose-600/80">
-              Bu proforma faturalandırma belgesi bilgilendirme amaçlıdır. Bilgilerde düzeltme için lütfen operasyon birimimizle iletişime geçiniz.
-            </p>
           </div>
 
           {/* Footer Signature Box */}

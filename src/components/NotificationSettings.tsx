@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Save, Bell, Mail, Shield, AlertTriangle, CheckCircle2, Info, Building2 } from 'lucide-react';
 import { motion } from 'motion/react';
+import BankAccountManager from './BankAccountManager';
+import { BankAccount } from '../types';
 
 interface Settings {
   reminder_7_days_enabled: number;
@@ -21,10 +23,12 @@ interface Settings {
   support_email?: string;
   support_website?: string;
   support_hq_address?: string;
+  bank_accounts?: string;
 }
 
 export default function NotificationSettings() {
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
@@ -40,10 +44,62 @@ export default function NotificationSettings() {
       });
       const data = await res.json();
       setSettings(data);
+
+      if (data.bank_accounts) {
+        try {
+          const parsed = JSON.parse(data.bank_accounts);
+          if (Array.isArray(parsed)) {
+            setBankAccounts(parsed);
+          }
+        } catch (e) {
+          console.error('Banka hesapları ayrıştırılamadı:', e);
+        }
+      }
     } catch (error) {
       console.error('Ayarlar yüklenemedi:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleBankAccountsChange = async (updatedAccounts: BankAccount[]) => {
+    setBankAccounts(updatedAccounts);
+    if (settings) {
+      const updatedSettings = {
+        ...settings,
+        bank_accounts: JSON.stringify(updatedAccounts)
+      };
+      setSettings(updatedSettings);
+
+      try {
+        const { 
+          reminder_7_days_enabled, reminder_2_days_enabled, reminder_expiry_enabled, 
+          reminder_expiry_days, admin_weekly_report_enabled, admin_report_email,
+          show_commissions_to_users, status_change_notify_enabled,
+          support_phone, support_email, support_website, support_hq_address
+        } = updatedSettings;
+
+        const payload = {
+          reminder_7_days_enabled, reminder_2_days_enabled, reminder_expiry_enabled, 
+          reminder_expiry_days, admin_weekly_report_enabled, admin_report_email,
+          show_commissions_to_users, status_change_notify_enabled,
+          support_phone, support_email, support_website, support_hq_address,
+          bank_accounts: JSON.stringify(updatedAccounts)
+        };
+
+        const res = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          credentials: 'include'
+        });
+
+        if (res.ok) {
+          setMessage({ type: 'success', text: 'Banka hesap bilgileri başarıyla güncellendi ve kaydedildi.' });
+        }
+      } catch (e) {
+        console.error('Banka hesapları otomatik kaydetme hatası:', e);
+      }
     }
   };
 
@@ -54,7 +110,7 @@ export default function NotificationSettings() {
     setSaving(true);
     setMessage(null);
 
-    // Sadece bildirim ve destek merkezi ayarlarını gönder
+    // Sadece bildirim, destek ve banka ayarlarını gönder
     const { 
       reminder_7_days_enabled, reminder_2_days_enabled, reminder_expiry_enabled, 
       reminder_expiry_days, admin_weekly_report_enabled, admin_report_email,
@@ -66,7 +122,8 @@ export default function NotificationSettings() {
       reminder_7_days_enabled, reminder_2_days_enabled, reminder_expiry_enabled, 
       reminder_expiry_days, admin_weekly_report_enabled, admin_report_email,
       show_commissions_to_users, status_change_notify_enabled,
-      support_phone, support_email, support_website, support_hq_address
+      support_phone, support_email, support_website, support_hq_address,
+      bank_accounts: JSON.stringify(bankAccounts)
     };
 
     try {
@@ -78,7 +135,7 @@ export default function NotificationSettings() {
       });
 
       if (res.ok) {
-        setMessage({ type: 'success', text: 'Ayarlar başarıyla kaydedildi.' });
+        setMessage({ type: 'success', text: 'Tüm ayarlar ve banka hesap bilgileri başarıyla kaydedildi.' });
       } else {
         setMessage({ type: 'error', text: 'Ayarlar kaydedilirken bir hata oluştu.' });
       }
@@ -342,6 +399,12 @@ export default function NotificationSettings() {
             </div>
           </div>
         </div>
+
+        {/* Banka Hesap Bilgileri Yönetim Arayüzü */}
+        <BankAccountManager 
+          bankAccounts={bankAccounts} 
+          onChange={handleBankAccountsChange}
+        />
 
         {/* Kaydet Butonu ve Mesaj */}
         <div className="flex items-center justify-between gap-4">

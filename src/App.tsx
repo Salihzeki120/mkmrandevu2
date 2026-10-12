@@ -71,7 +71,8 @@ import {
   Tag,
   Volume2,
   VolumeX,
-  Eye
+  Eye,
+  Kanban as KanbanIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
@@ -95,6 +96,7 @@ import UserProfile from './components/UserProfile';
 import CompanyForm from './components/CompanyForm';
 import ApplicantCard from './components/ApplicantCard';
 import WeeklyAppointmentsModal from './components/WeeklyAppointmentsModal';
+import KanbanBoard from './components/KanbanBoard';
 
 // --- Components ---
 
@@ -296,12 +298,15 @@ function MainApp() {
   const [countries, setCountries] = useState<Country[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
   const [companySearchQuery, setCompanySearchQuery] = useState('');
+  const [companyAuthorizedPersonFilter, setCompanyAuthorizedPersonFilter] = useState('');
+  const [companyPhoneFilter, setCompanyPhoneFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCountry, setSelectedCountry] = useState('Tümü');
   const [selectedStatus, setSelectedStatus] = useState('Tümü');
   const [selectedPaymentStatus, setSelectedPaymentStatus] = useState('Tümü');
   const [selectedVisaCategory, setSelectedVisaCategory] = useState('Tümü');
+  const [applicantViewMode, setApplicantViewMode] = useState<'table' | 'kanban'>('table');
   
   // Modals
   const [showApplicantForm, setShowApplicantForm] = useState(false);
@@ -935,6 +940,54 @@ function MainApp() {
       }
     } catch (error) {
       console.error('Silme hatası:', error);
+    }
+  };
+
+  const handleKanbanUpdateStatus = async (
+    applicant: Applicant,
+    newStatus: ApplicationStatus,
+    details?: { date?: string; time?: string; visaResult?: '' | 'Onaylandı' | 'Red' }
+  ) => {
+    try {
+      const timelineDesc = `İşlem durumu "${applicant.islemDurumu}" iken "${newStatus}" olarak güncellendi.`;
+      const newEvent: TimelineEvent = {
+        id: Math.random().toString(36).substring(2, 9),
+        status: newStatus,
+        date: new Date().toISOString(),
+        description: timelineDesc,
+        user: user?.username || 'Sistem'
+      };
+
+      const updatedTimeline = [newEvent, ...(applicant.timeline || [])];
+      const payload: Partial<Applicant> = {
+        takipKodu: applicant.takipKodu,
+        islemDurumu: newStatus,
+        timeline: updatedTimeline
+      };
+
+      if (details?.date) payload.randevuTarihi = details.date;
+      if (details?.time) payload.saat = details.time;
+      if (details?.visaResult !== undefined) payload.vizeSonucu = details.visaResult;
+
+      // Optimistic state update
+      setApplicants(prev => prev.map(a => a.takipKodu === applicant.takipKodu ? { ...a, ...payload } as Applicant : a));
+
+      const res = await fetchWithAuth('/api/applicants', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        fetchData();
+        alert('Durum güncellenirken bir hata oluştu.');
+      } else {
+        fetchData(true);
+      }
+    } catch (error) {
+      console.error('Kanban durum güncelleme hatası:', error);
+      fetchData();
+      alert('Durum güncellenemedi.');
     }
   };
 
@@ -1863,9 +1916,100 @@ function MainApp() {
           </div>
         );
 
+      case 'kanban':
+        return (
+          <KanbanBoard
+            applicants={applicants}
+            countries={countries}
+            prices={prices}
+            accounting={accounting}
+            user={user}
+            darkMode={darkMode}
+            onUpdateStatus={handleKanbanUpdateStatus}
+            onSelectApplicant={(a) => {
+              setSelectedApplicant(a);
+              setShowApplicantCard(true);
+            }}
+            onEditApplicant={(a) => {
+              setSelectedApplicant(a);
+              setShowApplicantForm(true);
+            }}
+            onDeleteApplicant={handleDeleteApplicant}
+            onOpenAccounting={(a) => {
+              setSelectedApplicant(a);
+              setShowAccountingForm(true);
+            }}
+            onOpenProforma={(a) => {
+              setSelectedApplicant(a);
+              setShowProformaModal(true);
+            }}
+            onAddNew={() => {
+              setSelectedApplicant(null);
+              setShowApplicantForm(true);
+            }}
+            onRefresh={() => fetchData(false)}
+          />
+        );
+
       case 'applicants':
       case 'pending':
       case 'appointments':
+        if (activeTab === 'applicants' && applicantViewMode === 'kanban') {
+          return (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl border border-slate-200 dark:border-slate-700">
+                  <button
+                    onClick={() => setApplicantViewMode('table')}
+                    className="px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 text-slate-500 hover:text-slate-700 dark:text-slate-400"
+                  >
+                    <FileText size={15} />
+                    Tablo Görünümü
+                  </button>
+                  <button
+                    onClick={() => setApplicantViewMode('kanban')}
+                    className="px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 bg-white dark:bg-slate-700 text-brand-600 dark:text-brand-400 shadow-sm"
+                  >
+                    <KanbanIcon size={15} />
+                    Kanban Panosu
+                  </button>
+                </div>
+              </div>
+              <KanbanBoard
+                applicants={applicants}
+                countries={countries}
+                prices={prices}
+                accounting={accounting}
+                user={user}
+                darkMode={darkMode}
+                onUpdateStatus={handleKanbanUpdateStatus}
+                onSelectApplicant={(a) => {
+                  setSelectedApplicant(a);
+                  setShowApplicantCard(true);
+                }}
+                onEditApplicant={(a) => {
+                  setSelectedApplicant(a);
+                  setShowApplicantForm(true);
+                }}
+                onDeleteApplicant={handleDeleteApplicant}
+                onOpenAccounting={(a) => {
+                  setSelectedApplicant(a);
+                  setShowAccountingForm(true);
+                }}
+                onOpenProforma={(a) => {
+                  setSelectedApplicant(a);
+                  setShowProformaModal(true);
+                }}
+                onAddNew={() => {
+                  setSelectedApplicant(null);
+                  setShowApplicantForm(true);
+                }}
+                onRefresh={() => fetchData(false)}
+              />
+            </div>
+          );
+        }
+
         const filteredApplicants = applicants.filter(a => {
           const matchesSearch = ((a.ad || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
                                  (a.soyad || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -1992,6 +2136,33 @@ function MainApp() {
                     </button>
                   </div>
                 </div>
+
+                {activeTab === 'applicants' && (
+                  <div className="inline-flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                    <button
+                      onClick={() => setApplicantViewMode('table')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                        applicantViewMode === 'table'
+                          ? 'bg-white text-brand-600 shadow-sm'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      <FileText size={14} />
+                      Tablo
+                    </button>
+                    <button
+                      onClick={() => setApplicantViewMode('kanban')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                        applicantViewMode === 'kanban'
+                          ? 'bg-white text-brand-600 shadow-sm'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      <KanbanIcon size={14} />
+                      Kanban Panosu
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Row 2: Filters Side by Side */}
@@ -2198,9 +2369,19 @@ function MainApp() {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredApplicants.map(a => (
-                    <tr key={a.takipKodu} className={`hover:bg-slate-50 transition-colors ${selectedApplicantIds.includes(a.takipKodu) ? 'bg-brand-50/50' : ''}`}>
+                    <tr 
+                      key={a.takipKodu} 
+                      onDoubleClick={(e) => {
+                        const target = e.target as HTMLElement;
+                        if (target.closest('button') || target.closest('input') || target.closest('a')) return;
+                        setSelectedApplicant(a);
+                        setShowApplicantForm(true);
+                      }}
+                      className={`hover:bg-slate-50 transition-colors cursor-pointer select-none ${selectedApplicantIds.includes(a.takipKodu) ? 'bg-brand-50/50' : ''}`}
+                      title="Düzenlemek için çift tıklayın"
+                    >
                       {user?.role === 'admin' && (
-                        <td className="px-6 py-4">
+                        <td className="px-6 py-4" onDoubleClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-center">
                             <input 
                               type="checkbox" 
@@ -2218,7 +2399,17 @@ function MainApp() {
                         </td>
                       )}
                       <td className="px-6 py-4 font-mono text-xs font-bold text-brand-600">{a.takipKodu}</td>
-                      <td className="px-6 py-4 font-medium">{a.ad} {a.soyad}</td>
+                      <td 
+                        className="px-6 py-4 font-medium text-slate-800 hover:text-brand-600 transition-colors"
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedApplicant(a);
+                          setShowApplicantForm(true);
+                        }}
+                        title="Düzenlemek için çift tıklayın"
+                      >
+                        {a.ad} {a.soyad}
+                      </td>
                       <td className="px-6 py-4">
                         <div className="flex flex-col">
                           <span className="text-sm font-semibold text-slate-700">{a.ulke}</span>
@@ -2555,11 +2746,11 @@ function MainApp() {
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
                       <th className="px-6 py-4 font-semibold">Ülke</th>
-                      <th className="px-6 py-4 font-semibold">Kur</th>
-                      <th className="px-6 py-4 font-semibold">Konsolosluk Ücreti</th>
-                      <th className="px-6 py-4 font-semibold">Hizmet Bedeli</th>
-                      <th className="px-6 py-4 font-semibold">KDV</th>
-                      <th className="px-6 py-4 font-semibold">Toplam</th>
+                      <th className="px-6 py-4 font-semibold">Para Birimi (YP)</th>
+                      <th className="px-6 py-4 font-semibold">Konsolosluk Harcı</th>
+                      <th className="px-6 py-4 font-semibold">ÜCRET YP KDV Hariç Tutar</th>
+                      <th className="px-6 py-4 font-semibold">YP KDV (%20)</th>
+                      <th className="px-6 py-4 font-semibold">KDV DAHİL TOPLAM TUTAR (Kurumsal İşlem)</th>
                       <th className="px-6 py-4 font-semibold text-right">İşlem</th>
                     </tr>
                   </thead>
@@ -3987,59 +4178,172 @@ function MainApp() {
       }
 
       case 'company-list': {
+        const filteredCompanies = companies.filter(company => {
+          const searchLower = (companySearchQuery || '').toLowerCase().trim();
+          const authLower = (companyAuthorizedPersonFilter || '').toLowerCase().trim();
+          const phoneLower = (companyPhoneFilter || '').toLowerCase().trim();
+
+          const matchesGeneral = !searchLower || (
+            (company.firma_unvani || "").toLowerCase().includes(searchLower) ||
+            (company.acente_adi || "").toLowerCase().includes(searchLower) ||
+            (company.yetkili_ad_soyad || "").toLowerCase().includes(searchLower) ||
+            (company.vergi_no || "").toLowerCase().includes(searchLower) ||
+            (company.email || "").toLowerCase().includes(searchLower) ||
+            (company.telefon || "").toLowerCase().includes(searchLower) ||
+            (company.yetkili_telefon || "").toLowerCase().includes(searchLower)
+          );
+
+          const matchesAuth = !authLower || (
+            (company.yetkili_ad_soyad || "").toLowerCase().includes(authLower)
+          );
+
+          const matchesPhone = !phoneLower || (
+            (company.telefon || "").toLowerCase().includes(phoneLower) ||
+            (company.yetkili_telefon || "").toLowerCase().includes(phoneLower)
+          );
+
+          return matchesGeneral && matchesAuth && matchesPhone;
+        });
+
+        const hasActiveFilters = Boolean(
+          companySearchQuery.trim() || 
+          companyAuthorizedPersonFilter.trim() || 
+          companyPhoneFilter.trim()
+        );
+
         return (
           <div className="space-y-8">
             <div className="bg-white rounded-[40px] border border-slate-100 shadow-sm overflow-hidden">
-              <div className="p-10 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row md:items-center justify-between gap-6">
-                <div className="flex items-center gap-4">
-                  <div className="p-3 bg-brand-600 text-white rounded-2xl">
-                    <Building2 size={24} />
+              <div className="p-8 border-b border-slate-100 bg-slate-50/50 space-y-6">
+                {/* Üst Başlık ve Sayaç Alanı */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <div className="p-3 bg-brand-600 text-white rounded-2xl shadow-lg shadow-brand-200">
+                      <Building2 size={24} />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-black text-slate-800 tracking-tight">Firma Listesi</h3>
+                      <p className="text-xs text-slate-500 font-medium">Sistemdeki tüm kayıtlı firmalar ve yetkili bilgileri.</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-xl font-black text-slate-800 tracking-tight">Firma Listesi</h3>
-                    <p className="text-xs text-slate-500 font-medium">Sistemdeki tüm kayıtlı firmalar ve yetkili bilgileri.</p>
-                  </div>
-                </div>
 
-                {/* Arama Bölümü */}
-                <div className="flex-1 max-w-md relative group">
-                  <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-slate-400 group-focus-within:text-brand-600 transition-colors">
-                    <Search size={18} />
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="Firma adı, yetkili veya vergi no ara..."
-                    value={companySearchQuery}
-                    onChange={(e) => setCompanySearchQuery(e.target.value)}
-                    className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-medium focus:outline-none focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 transition-all shadow-sm"
-                  />
-                </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest bg-white px-3.5 py-2 rounded-xl border border-slate-200 shadow-sm">
+                      {hasActiveFilters ? (
+                        <>Gösterilen: <strong className="text-brand-600">{filteredCompanies.length}</strong> / {companies.length} Firma</>
+                      ) : (
+                        <>Toplam <strong className="text-brand-600">{companies.length}</strong> Firma</>
+                      )}
+                    </span>
 
-                <div className="flex items-center gap-4">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-white px-3 py-1.5 rounded-full border border-slate-100">Toplam {companies.length} Firma</span>
-                  {selectedCompanyIds && selectedCompanyIds.length > 0 && (
-                    <button 
-                      onClick={async () => {
-                        if (!confirm(`${selectedCompanyIds.length} firmayı silmek istediğinize emin misiniz?`)) return;
-                        try {
-                          const res = await fetchWithAuth('/api/companies/bulk-delete', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ ids: selectedCompanyIds })
-                          });
-                          if (res.ok) {
-                            setSelectedCompanyIds([]);
-                            fetchData();
+                    {hasActiveFilters && (
+                      <button
+                        onClick={() => {
+                          setCompanySearchQuery('');
+                          setCompanyAuthorizedPersonFilter('');
+                          setCompanyPhoneFilter('');
+                        }}
+                        className="px-3 py-2 bg-slate-200/80 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5"
+                        title="Tüm filtreleri temizle"
+                      >
+                        <X size={14} />
+                        <span>Filtreleri Temizle</span>
+                      </button>
+                    )}
+
+                    {selectedCompanyIds && selectedCompanyIds.length > 0 && (
+                      <button 
+                        onClick={async () => {
+                          if (!confirm(`${selectedCompanyIds.length} firmayı silmek istediğinize emin misiniz?`)) return;
+                          try {
+                            const res = await fetchWithAuth('/api/companies/bulk-delete', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ ids: selectedCompanyIds })
+                            });
+                            if (res.ok) {
+                              setSelectedCompanyIds([]);
+                              fetchData();
+                            }
+                          } catch (e) {
+                            alert('Silme işlemi başarısız.');
                           }
-                        } catch (e) {
-                          alert('Silme işlemi başarısız.');
-                        }
-                      }}
-                      className="px-4 py-2 bg-rose-600 text-white text-[10px] font-black rounded-xl hover:bg-rose-700 transition-colors uppercase tracking-widest"
-                    >
-                      {selectedCompanyIds.length} Firmayı Sil
-                    </button>
-                  )}
+                        }}
+                        className="px-4 py-2 bg-rose-600 text-white text-[10px] font-black rounded-xl hover:bg-rose-700 transition-colors uppercase tracking-widest shadow-sm"
+                      >
+                        {selectedCompanyIds.length} Firmayı Sil
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Hızlı Filtreleme ve Arama Çubuğu */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-2">
+                  {/* 1. Genel / Firma Arama */}
+                  <div className="relative group">
+                    <div className="absolute inset-y-0 left-3.5 flex items-center pointer-events-none text-slate-400 group-focus-within:text-brand-600 transition-colors">
+                      <Search size={16} />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Firma / Acente adı veya Vergi No..."
+                      value={companySearchQuery}
+                      onChange={(e) => setCompanySearchQuery(e.target.value)}
+                      className="w-full pl-10 pr-8 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all shadow-sm"
+                    />
+                    {companySearchQuery && (
+                      <button 
+                        onClick={() => setCompanySearchQuery('')}
+                        className="absolute inset-y-0 right-2.5 flex items-center text-slate-300 hover:text-slate-600"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* 2. Yetkili Kişi Filtresi */}
+                  <div className="relative group">
+                    <div className="absolute inset-y-0 left-3.5 flex items-center pointer-events-none text-slate-400 group-focus-within:text-brand-600 transition-colors">
+                      <UserIcon size={16} />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Yetkili Kişi adına göre filtrele..."
+                      value={companyAuthorizedPersonFilter}
+                      onChange={(e) => setCompanyAuthorizedPersonFilter(e.target.value)}
+                      className="w-full pl-10 pr-8 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all shadow-sm"
+                    />
+                    {companyAuthorizedPersonFilter && (
+                      <button 
+                        onClick={() => setCompanyAuthorizedPersonFilter('')}
+                        className="absolute inset-y-0 right-2.5 flex items-center text-slate-300 hover:text-slate-600"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* 3. Telefon Numarası Filtresi */}
+                  <div className="relative group sm:col-span-2 lg:col-span-1">
+                    <div className="absolute inset-y-0 left-3.5 flex items-center pointer-events-none text-slate-400 group-focus-within:text-brand-600 transition-colors">
+                      <Phone size={16} />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Telefon Numarasına göre filtrele..."
+                      value={companyPhoneFilter}
+                      onChange={(e) => setCompanyPhoneFilter(e.target.value)}
+                      className="w-full pl-10 pr-8 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all shadow-sm"
+                    />
+                    {companyPhoneFilter && (
+                      <button 
+                        onClick={() => setCompanyPhoneFilter('')}
+                        className="absolute inset-y-0 right-2.5 flex items-center text-slate-300 hover:text-slate-600"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-200">
@@ -4049,15 +4353,15 @@ function MainApp() {
                       <th className="pl-6 py-4 w-10">
                         <input 
                           type="checkbox" 
-                          checked={selectedCompanyIds && selectedCompanyIds.length === companies.length && companies.length > 0}
+                          checked={selectedCompanyIds && selectedCompanyIds.length === filteredCompanies.length && filteredCompanies.length > 0}
                           onChange={() => {
-                            if (selectedCompanyIds && selectedCompanyIds.length === companies.length) {
+                            if (selectedCompanyIds && selectedCompanyIds.length === filteredCompanies.length) {
                               setSelectedCompanyIds([]);
                             } else {
-                              setSelectedCompanyIds(companies.map(c => c.id));
+                              setSelectedCompanyIds(filteredCompanies.map(c => c.id));
                             }
                           }}
-                          className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                          className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
                         />
                       </th>
                       <th className="px-4 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">İsim / Unvan</th>
@@ -4068,19 +4372,7 @@ function MainApp() {
                     </tr>
                   </thead>
                   <tbody>
-                    {companies
-                      .filter(company => {
-                        const searchLower = companySearchQuery.toLowerCase();
-                        return (
-                          (company.firma_unvani || "").toLowerCase().includes(searchLower) ||
-                          (company.acente_adi || "").toLowerCase().includes(searchLower) ||
-                          (company.yetkili_ad_soyad || "").toLowerCase().includes(searchLower) ||
-                          (company.vergi_no || "").toLowerCase().includes(searchLower) ||
-                          (company.email || "").toLowerCase().includes(searchLower) ||
-                          (company.telefon || "").toLowerCase().includes(searchLower)
-                        );
-                      })
-                      .map((company) => (
+                    {filteredCompanies.map((company) => (
                       <tr key={company.id} className={`border-b border-slate-50 hover:bg-slate-50/50 transition-all group ${selectedCompanyIds?.includes(company.id) ? 'bg-brand-50/30' : ''}`}>
                         <td className="pl-6 py-4">
                           <input 
@@ -4093,7 +4385,7 @@ function MainApp() {
                                   : [...(prev || []), company.id]
                               );
                             }}
-                            className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                            className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
                           />
                         </td>
                         <td className="px-4 py-4">
@@ -4115,14 +4407,20 @@ function MainApp() {
                             </div>
                             <div className="flex items-center gap-2 text-[11px] font-bold text-slate-600">
                               <Phone size={12} className="text-slate-400 shrink-0" />
-                              <span>{company.telefon || '-'}</span>
+                              <span className={companyPhoneFilter && (company.telefon || '').toLowerCase().includes(companyPhoneFilter.toLowerCase().trim()) ? 'text-brand-600 font-black' : ''}>
+                                {company.telefon || '-'}
+                              </span>
                             </div>
                           </div>
                         </td>
                         <td className="px-4 py-4">
                           <div className="flex flex-col gap-1">
-                            <span className="text-xs font-black text-slate-700 truncate max-w-[120px]" title={company.yetkili_ad_soyad || '-'}>{company.yetkili_ad_soyad || '-'}</span>
-                            <span className="text-[10px] font-bold text-slate-400">{company.yetkili_telefon}</span>
+                            <span className={`text-xs font-black truncate max-w-[120px] ${companyAuthorizedPersonFilter && (company.yetkili_ad_soyad || '').toLowerCase().includes(companyAuthorizedPersonFilter.toLowerCase().trim()) ? 'text-brand-600' : 'text-slate-700'}`} title={company.yetkili_ad_soyad || '-'}>
+                              {company.yetkili_ad_soyad || '-'}
+                            </span>
+                            <span className={`text-[10px] font-bold ${companyPhoneFilter && (company.yetkili_telefon || '').toLowerCase().includes(companyPhoneFilter.toLowerCase().trim()) ? 'text-brand-600 font-black' : 'text-slate-400'}`}>
+                              {company.yetkili_telefon || '-'}
+                            </span>
                           </div>
                         </td>
                         <td className="pr-6 py-4 text-right">
@@ -4156,13 +4454,27 @@ function MainApp() {
                         </td>
                       </tr>
                     ))}
-                    {companies.length === 0 && (
+                    {filteredCompanies.length === 0 && (
                       <tr>
                         <td colSpan={6} className="px-8 py-20 text-center">
                           <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-100">
-                            <Building2 className="text-slate-200" size={32} />
+                            {hasActiveFilters ? <Filter className="text-slate-300" size={32} /> : <Building2 className="text-slate-200" size={32} />}
                           </div>
-                          <p className="text-sm font-bold text-slate-300 uppercase tracking-widest">Henüz firma kaydı bulunmuyor.</p>
+                          <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">
+                            {hasActiveFilters ? 'Arama kriterlerine uygun firma bulunamadı.' : 'Henüz firma kaydı bulunmuyor.'}
+                          </p>
+                          {hasActiveFilters && (
+                            <button
+                              onClick={() => {
+                                setCompanySearchQuery('');
+                                setCompanyAuthorizedPersonFilter('');
+                                setCompanyPhoneFilter('');
+                              }}
+                              className="mt-3 text-xs font-bold text-brand-600 hover:underline"
+                            >
+                              Filtreleri Temizle
+                            </button>
+                          )}
                         </td>
                       </tr>
                     )}
@@ -4344,8 +4656,15 @@ function MainApp() {
 
             <AnimatePresence>
               {showUserForm && (
-                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                <motion.div 
+                  key="modal-new-user-overlay"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
+                >
                   <motion.div 
+                    key="modal-new-user-content"
                     initial={{ scale: 0.9, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
                     exit={{ scale: 0.9, opacity: 0 }}
@@ -4427,7 +4746,7 @@ function MainApp() {
                       </button>
                     </form>
                   </motion.div>
-                </div>
+                </motion.div>
               )}
             </AnimatePresence>
           </div>
@@ -4539,7 +4858,7 @@ function MainApp() {
             <SidebarItem 
               icon={FileText} 
               label="Başvurular" 
-              active={activeTab === 'applicants' || activeTab === 'pending' || activeTab === 'appointments'} 
+              active={activeTab === 'applicants' || activeTab === 'kanban' || activeTab === 'pending' || activeTab === 'appointments'} 
               onClick={() => toggleSubmenu('applications')} 
               darkMode={darkMode} 
               hasSubmenu={true}
@@ -4548,7 +4867,8 @@ function MainApp() {
             />
             {openSubmenus['applications'] && !isSidebarCollapsed && (
               <div className={`ml-9 mt-1 space-y-1 border-l-2 ${darkMode ? 'border-slate-700' : 'border-slate-100'} pl-2`}>
-                <button onClick={() => { setActiveTab('applicants'); setIsMobileMenuOpen(false); }} className={`w-full text-left px-4 py-2 text-[10px] uppercase font-black tracking-widest rounded-lg transition-all ${activeTab === 'applicants' ? 'bg-brand-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`}>Tüm Başvurular</button>
+                <button onClick={() => { setActiveTab('applicants'); setApplicantViewMode('table'); setIsMobileMenuOpen(false); }} className={`w-full text-left px-4 py-2 text-[10px] uppercase font-black tracking-widest rounded-lg transition-all ${activeTab === 'applicants' && applicantViewMode === 'table' ? 'bg-brand-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`}>Tüm Başvurular</button>
+                <button onClick={() => { setActiveTab('kanban'); setApplicantViewMode('kanban'); setIsMobileMenuOpen(false); }} className={`w-full text-left px-4 py-2 text-[10px] uppercase font-black tracking-widest rounded-lg transition-all ${activeTab === 'kanban' || (activeTab === 'applicants' && applicantViewMode === 'kanban') ? 'bg-brand-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`}>Kanban Panosu</button>
                 <button onClick={() => { setActiveTab('pending'); setIsMobileMenuOpen(false); }} className={`w-full text-left px-4 py-2 text-[10px] uppercase font-black tracking-widest rounded-lg transition-all ${activeTab === 'pending' ? 'bg-brand-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`}>Talep Bekleyenler</button>
                 <button onClick={() => { setActiveTab('appointments'); setIsMobileMenuOpen(false); }} className={`w-full text-left px-4 py-2 text-[10px] uppercase font-black tracking-widest rounded-lg transition-all ${activeTab === 'appointments' ? 'bg-brand-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`}>Randevu Alınanlar</button>
               </div>
@@ -4668,6 +4988,7 @@ function MainApp() {
                   {activeTab === 'calendar' && 'Randevu Takvimi'}
                   {activeTab === 'appointments' && 'Randevu Alınanlar'}
                   {activeTab === 'applicants' && 'Müşteri Kayıtları'}
+                  {activeTab === 'kanban' && 'Kanban Başvuru Panosu'}
                   {activeTab === 'accounting' && 'Muhasebe Yönetimi'}
                   {activeTab === 'users' && 'Kullanıcı Yönetimi'}
                   {activeTab === 'logs' && 'Sistem İşlem Logları'}
@@ -5303,8 +5624,15 @@ function MainApp() {
         {/* Panel Customization Modal */}
         <AnimatePresence>
           {showDashboardSettings && (
-            <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              key="dashboard-settings-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
+            >
               <motion.div 
+                key="dashboard-settings-content"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
@@ -5442,15 +5770,22 @@ function MainApp() {
                   </button>
                 </div>
               </motion.div>
-            </div>
+            </motion.div>
           )}
         </AnimatePresence>
 
         {/* Rapor Detay (Ülke Dağılımı ve Başvuru Listesi) Modali */}
         <AnimatePresence>
           {reportDetailModal && (
-            <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+            <motion.div 
+              key="report-detail-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[200] flex items-center justify-center p-4"
+            >
               <motion.div 
+                key="report-detail-content"
                 initial={{ opacity: 0, scale: 0.95, y: 10 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: 10 }}
@@ -5588,7 +5923,7 @@ function MainApp() {
                   </button>
                 </div>
               </motion.div>
-            </div>
+            </motion.div>
           )}
         </AnimatePresence>
       </main>

@@ -6,7 +6,7 @@
     "dev": "tsx server.ts",
     "start": "node server.js",
     "build:client": "vite build",
-    "build:server": "esbuild server.ts --bundle --platform=node --outfile=server.js --external:better-sqlite3 --external:bcryptjs --external:vite --external:@tailwindcss/vite --external:lightningcss --format=cjs --external:sqlite3",
+    "build:server": "esbuild server.ts --bundle --platform=node --outfile=server.js --external:better-sqlite3 --external:vite --external:@tailwindcss/vite --external:lightningcss --format=cjs --external:sqlite3",
     "build": "npm run build:client && npm run build:server",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
