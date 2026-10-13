@@ -97,6 +97,7 @@ import CompanyForm from './components/CompanyForm';
 import ApplicantCard from './components/ApplicantCard';
 import WeeklyAppointmentsModal from './components/WeeklyAppointmentsModal';
 import KanbanBoard from './components/KanbanBoard';
+import { PreAccountingModule } from './components/PreAccountingModule';
 
 // --- Components ---
 
@@ -2556,153 +2557,13 @@ function MainApp() {
 
       case 'accounting':
         return (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <StatCard label="Toplam Fatura" value={accounting.length} icon={FileText} color="bg-brand-500" darkMode={darkMode} />
-              <StatCard label="Tahsil Edilen" value={formatTotalCollection(totalCollectionByCurrency)} icon={CheckCircle2} color="bg-emerald-500" darkMode={darkMode} />
-              <StatCard label="Bekleyen Ödeme" value={`${applicants.filter(a => a.odemeDurumu === 'Ödenmedi').length} Kayıt`} icon={AlertCircle} color="bg-rose-500" darkMode={darkMode} />
-            </div>
-            
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                <h3 className="text-lg font-bold">Muhasebe Kayıtları</h3>
-                <button 
-                  onClick={fetchData}
-                  className="text-xs font-bold text-brand-600 hover:text-brand-800 flex items-center gap-1 bg-brand-50 px-3 py-1.5 rounded-lg transition-colors"
-                >
-                  <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-                  YENİLE
-                </button>
-                {user?.role === 'admin' && (
-                  <button 
-                    onClick={() => setShowFinancialSummary(true)}
-                    className="text-xs font-bold text-amber-600 hover:text-amber-800 flex items-center gap-1 bg-amber-50 px-3 py-1.5 rounded-lg transition-colors"
-                  >
-                    <TrendingUp size={14} />
-                    FİNANSAL ÖZET
-                  </button>
-                )}
-                <button 
-                  onClick={() => {
-                    const exportData = accounting.map(a => ({
-                      'Fatura No': a.faturaNo,
-                      'Müşteri': a.adSoyad,
-                      'Ülke': a.ulke,
-                      'İşlem Durumu': a.islemDurumu,
-                      'Net Tutar': a.netTutar,
-                      'KDV': a.kdv,
-                      'Toplam': a.toplam,
-                      'Para Birimi': a.currency || 'TRY',
-                      'Tarih': a.faturaTarihi,
-                      'Pasaport No': a.pasaportNo,
-                      'Firma': a.firma
-                    }));
-                    exportToExcel(exportData, 'Muhasebe_Kayitlari');
-                  }}
-                  className="text-xs font-bold text-emerald-600 hover:text-emerald-800 flex items-center gap-1 bg-emerald-50 px-3 py-1.5 rounded-lg transition-colors"
-                >
-                  <Download size={14} />
-                  EXCEL'E AKTAR
-                </button>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
-                      <th className="px-6 py-4 font-semibold">Fatura No</th>
-                      <th className="px-6 py-4 font-semibold">Müşteri</th>
-                      <th className="px-6 py-4 font-semibold">Ülke</th>
-                      <th className="px-6 py-4 font-semibold">Tutar</th>
-                      <th className="px-6 py-4 font-semibold">KDV</th>
-                      <th className="px-6 py-4 font-semibold">Toplam</th>
-                      <th className="px-6 py-4 font-semibold">Tarih</th>
-                      <th className="px-6 py-4 font-semibold text-right">İşlem</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {accounting.map(a => (
-                      <tr key={a.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-6 py-4 font-mono text-xs font-bold">{a.faturaNo || '-'}</td>
-                        <td className="px-6 py-4 font-medium">{a.adSoyad}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{a.ulke}</td>
-                        <td className="px-6 py-4 text-sm whitespace-nowrap">{a.netTutar.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} {getCurrencySymbol(a.currency, a.ulke)}</td>
-                        <td className="px-6 py-4 text-sm whitespace-nowrap">{a.kdv.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} {getCurrencySymbol(a.currency, a.ulke)}</td>
-                        <td className="px-6 py-4 font-bold text-brand-600 whitespace-nowrap">{a.toplam.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} {getCurrencySymbol(a.currency, a.ulke)}</td>
-                        <td className="px-6 py-4 text-sm text-slate-500 whitespace-nowrap">{a.faturaTarihi || '-'}</td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <button 
-                              onClick={() => {
-                                let applicant = applicants.find(app => app.takipKodu === a.takipKodu);
-                                if (!applicant) {
-                                  const parts = (a.adSoyad || '').split(' ');
-                                  applicant = {
-                                    takipKodu: a.takipKodu,
-                                    ad: parts[0] || '',
-                                    soyad: parts.slice(1).join(' ') || '',
-                                    dogumTarihi: '',
-                                    ulke: a.ulke,
-                                    islemDurumu: a.islemDurumu as any,
-                                    randevuTarihi: a.randevuBilgisi,
-                                    saat: '',
-                                    odemeDurumu: a.odemeDurumu as any,
-                                    pasaportNo: a.pasaportNo,
-                                    notlar: '',
-                                    pasaportSkt: '',
-                                    email: '',
-                                    kayitTarihi: a.kayitTarihi,
-                                    vizeSonucu: '',
-                                    vizeGecerlilikTarihi: '',
-                                    firmaAdi: a.firma
-                                  };
-                                }
-                                setSelectedApplicant(applicant);
-                                setShowProformaModal(true);
-                              }}
-                              className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-all flex items-center gap-1.5 font-extrabold text-xs shadow-sm"
-                              title="Proforma Fatura Görüntüle"
-                            >
-                              <FileText size={15} />
-                              <span>Proforma Fatura</span>
-                            </button>
-                            <button 
-                              onClick={() => generateAccountingPdf(a)}
-                              className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg transition-colors"
-                              title="PDF İndir"
-                            >
-                              <FileDown size={16} />
-                            </button>
-                            <button 
-                              onClick={() => {
-                                const applicant = applicants.find(app => app.takipKodu === a.takipKodu);
-                                if (applicant) {
-                                  setSelectedApplicant(applicant);
-                                  setShowAccountingForm(true);
-                                }
-                              }}
-                              className="p-2 bg-brand-50 text-brand-600 hover:bg-brand-100 rounded-lg transition-colors"
-                              title="Düzenle"
-                            >
-                              <Edit size={16} />
-                            </button>
-                            {user?.role === 'admin' && (
-                              <button 
-                                onClick={() => a.id && handleDeleteAccounting(a.id)}
-                                className="p-2 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg transition-colors"
-                                title="Sil"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+          <PreAccountingModule
+            applicants={applicants}
+            accountingRecords={accounting}
+            onRefresh={fetchData}
+            currentUser={user}
+            darkMode={darkMode}
+          />
         );
 
       case 'prices':
@@ -4897,7 +4758,7 @@ function MainApp() {
 
           <SidebarItem icon={Key} label="Şifre Yönetimi" active={activeTab === 'passwords'} onClick={() => { setActiveTab('passwords'); setIsMobileMenuOpen(false); }} darkMode={darkMode} isCollapsed={isSidebarCollapsed} />
           
-          <SidebarItem icon={Wallet} label="Muhasebe" active={activeTab === 'accounting'} onClick={() => { setActiveTab('accounting'); setIsMobileMenuOpen(false); }} darkMode={darkMode} isCollapsed={isSidebarCollapsed} />
+          <SidebarItem icon={Wallet} label="Ön Muhasebe" active={activeTab === 'accounting'} onClick={() => { setActiveTab('accounting'); setIsMobileMenuOpen(false); }} darkMode={darkMode} isCollapsed={isSidebarCollapsed} />
           
           <div>
             <SidebarItem 
@@ -4989,7 +4850,7 @@ function MainApp() {
                   {activeTab === 'appointments' && 'Randevu Alınanlar'}
                   {activeTab === 'applicants' && 'Müşteri Kayıtları'}
                   {activeTab === 'kanban' && 'Kanban Başvuru Panosu'}
-                  {activeTab === 'accounting' && 'Muhasebe Yönetimi'}
+                  {activeTab === 'accounting' && 'Ön Muhasebe & Fatura Yönetimi'}
                   {activeTab === 'users' && 'Kullanıcı Yönetimi'}
                   {activeTab === 'logs' && 'Sistem İşlem Logları'}
                   {activeTab === 'settings' && 'Bildirim Ayarları'}

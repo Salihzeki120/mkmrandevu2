@@ -126,3 +126,36 @@ export interface BankAccount {
   swift?: string;
   isActive?: boolean;
 }
+
+export interface InvoiceRecord {
+  id?: number;
+  faturaNo: string;
+  faturaTarihi: string;
+  faturaBedeli: number;
+  currency: string;
+  talepTarihi?: string;
+  firma?: string;
+  ulke?: string;
+  kisi?: string;
+  durum?: string;
+  takipKodu?: string;
+  email?: string;
+  notlar?: string;
+  created_at?: string;
+}
+
+export interface CountryCostRecord {
+  id?: number;
+  ulke: string;
+  kategori?: string;
+  ucret: number;
+  kur: string;
+  konsolosluk_kdvsiz: number;
+  konsolosluk_tl: number;
+  kdvli_kisim: number;
+  kdvli_tl: number;
+  kdv_doviz: number;
+  kdv_tl: number;
+  kdvsiz_toplam_tl: number;
+  toplam_tl: number;
+}

@@ -239,11 +239,51 @@ db.exec(`
     updated_at TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS invoices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    faturaNo TEXT,
+    faturaTarihi TEXT,
+    faturaBedeli REAL DEFAULT 0,
+    currency TEXT DEFAULT 'TRY',
+    talepTarihi TEXT,
+    firma TEXT,
+    ulke TEXT,
+    kisi TEXT,
+    durum TEXT DEFAULT 'Ödendi',
+    takipKodu TEXT,
+    email TEXT,
+    notlar TEXT,
+    created_at TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS country_costs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ulke TEXT,
+    kategori TEXT,
+    ucret REAL DEFAULT 0,
+    kur TEXT DEFAULT 'EUR',
+    konsolosluk_kdvsiz REAL DEFAULT 0,
+    konsolosluk_tl REAL DEFAULT 0,
+    kdvli_kisim REAL DEFAULT 0,
+    kdvli_tl REAL DEFAULT 0,
+    kdv_doviz REAL DEFAULT 0,
+    kdv_tl REAL DEFAULT 0,
+    kdvsiz_toplam_tl REAL DEFAULT 0,
+    toplam_tl REAL DEFAULT 0
+  );
+
   INSERT OR IGNORE INTO settings (id) VALUES (1);
 `);
 
 // 2. RUN MIGRATIONS AFTER TABLE CREATION
 const migrations = [
+  // Invoices table
+  "ALTER TABLE invoices ADD COLUMN durum TEXT DEFAULT 'Ödendi'",
+  "ALTER TABLE invoices ADD COLUMN takipKodu TEXT",
+  "ALTER TABLE invoices ADD COLUMN email TEXT",
+  "ALTER TABLE invoices ADD COLUMN notlar TEXT",
+  "ALTER TABLE invoices ADD COLUMN created_at TEXT",
+  
   // Settings table
   "ALTER TABLE settings ADD COLUMN smtp_host TEXT",
   "ALTER TABLE settings ADD COLUMN smtp_port INTEGER",
@@ -2131,6 +2171,251 @@ async function startServer() {
     db.prepare("DELETE FROM accounting WHERE id = ?").run(id);
     logAction((req.session as any).userId, (req.session as any).username, "Muhasebe Kaydı Silindi", `ID: ${id} olan muhasebe kaydı silindi.`, 'warning');
     res.json({ success: true });
+  });
+
+  // --- ÖN MUHASEBE & FATURA TAKİP (EXCEL VERİLERİ & YENİ FATURALANDIRMA) ---
+  app.get("/api/invoices", requireAuth, (req, res) => {
+    try {
+      const rows = db.prepare("SELECT * FROM invoices ORDER BY id DESC").all();
+      res.json(rows);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/invoices", requireAuth, (req, res) => {
+    try {
+      const data = req.body;
+      const stmt = db.prepare(`
+        INSERT INTO invoices (
+          faturaNo, faturaTarihi, faturaBedeli, currency, talepTarihi, 
+          firma, ulke, kisi, durum, takipKodu, email, notlar, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const result = stmt.run(
+        data.faturaNo || "",
+        data.faturaTarihi || new Date().toISOString().split('T')[0],
+        Number(data.faturaBedeli) || 0,
+        data.currency || 'TRY',
+        data.talepTarihi || "",
+        data.firma || "MKM VİZE",
+        data.ulke || "",
+        data.kisi || "",
+        data.durum || "Ödendi",
+        data.takipKodu || "",
+        data.email || "",
+        data.notlar || "",
+        new Date().toISOString()
+      );
+
+      // Ayrıca accounting tablosunda veya applicants tablosunda bu kişi/takipKodu varsa faturaNo ve odemeDurumunu senkronize et
+      if (data.takipKodu) {
+        db.prepare(`
+          UPDATE accounting 
+          SET faturaNo = ?, faturaTarihi = ?, odemeDurumu = ? 
+          WHERE takipKodu = ?
+        `).run(data.faturaNo || "", data.faturaTarihi || "", data.durum || "Ödendi", data.takipKodu);
+
+        db.prepare(`
+          UPDATE applicants 
+          SET odemeDurumu = ? 
+          WHERE takipKodu = ?
+        `).run(data.durum || "Ödendi", data.takipKodu);
+      }
+
+      logAction((req.session as any).userId, (req.session as any).username, "Yeni Fatura Kaydı", `Fatura No: ${data.faturaNo} (${data.kisi || data.firma}) eklendi.`, 'success');
+      res.json({ success: true, id: result.lastInsertRowid });
+    } catch (e: any) {
+      console.error("Fatura ekleme hatası:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.put("/api/invoices/:id", requireAuth, (req, res) => {
+    try {
+      const { id } = req.params;
+      const data = req.body;
+      db.prepare(`
+        UPDATE invoices SET 
+          faturaNo = ?, faturaTarihi = ?, faturaBedeli = ?, currency = ?, 
+          talepTarihi = ?, firma = ?, ulke = ?, kisi = ?, durum = ?, 
+          takipKodu = ?, email = ?, notlar = ?
+        WHERE id = ?
+      `).run(
+        data.faturaNo || "",
+        data.faturaTarihi || "",
+        Number(data.faturaBedeli) || 0,
+        data.currency || 'TRY',
+        data.talepTarihi || "",
+        data.firma || "",
+        data.ulke || "",
+        data.kisi || "",
+        data.durum || "Ödendi",
+        data.takipKodu || "",
+        data.email || "",
+        data.notlar || "",
+        id
+      );
+
+      if (data.takipKodu) {
+        db.prepare(`
+          UPDATE accounting 
+          SET faturaNo = ?, faturaTarihi = ?, odemeDurumu = ? 
+          WHERE takipKodu = ?
+        `).run(data.faturaNo || "", data.faturaTarihi || "", data.durum || "Ödendi", data.takipKodu);
+      }
+
+      logAction((req.session as any).userId, (req.session as any).username, "Fatura Güncellendi", `Fatura No: ${data.faturaNo} güncellendi.`, 'info');
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/invoices/:id", requireAdmin, (req, res) => {
+    try {
+      const { id } = req.params;
+      db.prepare("DELETE FROM invoices WHERE id = ?").run(id);
+      logAction((req.session as any).userId, (req.session as any).username, "Fatura Silindi", `Fatura ID: ${id} silindi.`, 'warning');
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/country-costs", requireAuth, (req, res) => {
+    try {
+      const rows = db.prepare("SELECT * FROM country_costs ORDER BY id ASC").all();
+      res.json(rows);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Faturayı Müşteriye E-Posta ile Gönder
+  app.post("/api/invoices/send-email", requireAuth, async (req, res) => {
+    const { faturaNo, email, kisi, firma, ulke, tutar, currency, faturaTarihi } = req.body;
+    if (!email || !email.includes('@')) {
+      return res.status(400).json({ error: "Geçerli bir alıcı e-posta adresi gereklidir." });
+    }
+
+    try {
+      const settings = db.prepare("SELECT * FROM settings WHERE id = 1").get() as any;
+      if (!settings || settings.is_email_active === 0) {
+        return res.status(400).json({ error: "Sistem e-posta gönderimi ayarlardan kapalı." });
+      }
+
+      const sym = currency === 'EUR' ? '€' : currency === 'USD' ? '$' : '₺';
+      const formattedTutar = Number(tutar || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 });
+      
+      const emailHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+          <div style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); padding: 30px; text-align: center; color: #fff;">
+            <h1 style="margin: 0; font-size: 24px; font-weight: 800; letter-spacing: 1px;">MKM VİZE DANIŞMANLIK</h1>
+            <p style="margin: 6px 0 0 0; color: #94a3b8; font-size: 13px;">Ön Muhasebe & Fatura Bildirimi</p>
+          </div>
+          <div style="padding: 30px; background-color: #ffffff;">
+            <h2 style="color: #0f172a; margin-top: 0; font-size: 20px;">Sayın ${kisi || firma || 'Müşterimiz'},</h2>
+            <p style="color: #475569; font-size: 15px; line-height: 1.6;">
+              Vize danışmanlık hizmetiniz için <strong>${faturaNo || 'faturanız'}</strong> düzenlenmiştir. Fatura ve ödeme detayları aşağıda sunulmuştur.
+            </p>
+            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin: 24px 0;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; color: #64748b;">Fatura No:</td><td style="padding: 8px 0; font-weight: bold; text-align: right;">${faturaNo || '-'}</td></tr>
+                <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; color: #64748b;">Fatura Tarihi:</td><td style="padding: 8px 0; font-weight: 600; text-align: right;">${faturaTarihi || '-'}</td></tr>
+                <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; color: #64748b;">Müşteri / Firma:</td><td style="padding: 8px 0; font-weight: 600; text-align: right;">${kisi || firma || '-'}</td></tr>
+                <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; color: #64748b;">Başvuru Ülkesi:</td><td style="padding: 8px 0; font-weight: 600; text-align: right;">${ulke || '-'}</td></tr>
+                <tr style="background-color: #eff6ff;"><td style="padding: 12px 8px; font-weight: bold; color: #1d4ed8;">Fatura Tutarı:</td><td style="padding: 12px 8px; font-weight: 900; font-size: 18px; color: #1d4ed8; text-align: right;">${formattedTutar} ${sym}</td></tr>
+              </table>
+            </div>
+            <p style="color: #64748b; font-size: 13px; line-height: 1.5;">
+              Ödemenizi banka hesaplarımıza açıklama kısmına faturanın ait olduğu <strong>${faturaNo || kisi}</strong> bilgisini yazarak gerçekleştirebilirsiniz. Sorularınız için bizimle iletişime geçebilirsiniz.
+            </p>
+          </div>
+          <div style="background-color: #f8fafc; padding: 20px; text-align: center; border-top: 1px solid #e2e8f0; font-size: 12px; color: #94a3b8;">
+            MKM VİZE DANIŞMANLIK HİZMETLERİ • +90 532 742 88 71 • info@mkmvize.com
+          </div>
+        </div>
+      `;
+
+      const transporter = nodemailer.createTransport({
+        host: settings.smtp_host || process.env.SMTP_HOST || 'smtp.yandex.com.tr',
+        port: Number(settings.smtp_port || process.env.SMTP_PORT) || 465,
+        secure: Number(settings.smtp_port || process.env.SMTP_PORT) === 465 || (!settings.smtp_port && !process.env.SMTP_PORT),
+        auth: {
+          user: settings.smtp_user || process.env.SMTP_USER,
+          pass: settings.smtp_pass || process.env.SMTP_PASS,
+        },
+        tls: {
+          rejectUnauthorized: false,
+          minVersion: 'TLSv1.2'
+        }
+      });
+
+      const recipients = [email.trim()];
+      const adminEmail = settings.admin_report_email || "salih@brighttour.com";
+      if (adminEmail && !recipients.includes(adminEmail.trim())) {
+        recipients.push(adminEmail.trim());
+      }
+
+      await transporter.sendMail({
+        from: settings.smtp_from || settings.smtp_user || 'MKM Vize <info@mkmvize.com>',
+        to: recipients.join(', '),
+        subject: `MKM Vize - Fatura Bilgilendirmesi (${faturaNo})`,
+        html: emailHtml
+      });
+
+      logAction((req.session as any).userId, (req.session as any).username, "Fatura E-Postası Gönderildi", `${faturaNo} nolu fatura ${email} adresine iletildi.`, 'success');
+      res.json({ success: true, message: "Fatura müşteriye ve muhasebeye başarıyla iletildi." });
+    } catch (err: any) {
+      console.error("Fatura e-posta gönderme hatası:", err);
+      res.status(500).json({ error: "E-posta gönderilemedi: " + err.message });
+    }
+  });
+
+  // Sistem Yedekleme ve 12.10.2026 Tarihine Geri Dönüş
+  app.get("/api/backup/status", requireAuth, (req, res) => {
+    try {
+      const fs = require('fs');
+      const backupPath = 'mkm_vize_backup_2026_10_12.db';
+      const exists = fs.existsSync(backupPath);
+      let backupStats = null;
+      if (exists) {
+        const stat = fs.statSync(backupPath);
+        backupStats = {
+          exists: true,
+          fileName: 'mkm_vize_backup_2026_10_12.db',
+          sizeBytes: stat.size,
+          sizeMB: (stat.size / (1024 * 1024)).toFixed(2),
+          date: '12.10.2026'
+        };
+      }
+      res.json({ backup12Oct: backupStats });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/backup/restore-12-10-2026", requireAdmin, (req, res) => {
+    try {
+      const fs = require('fs');
+      const backupPath = 'mkm_vize_backup_2026_10_12.db';
+      if (!fs.existsSync(backupPath)) {
+        return res.status(404).json({ error: "12.10.2026 tarihli yedek dosyası bulunamadı." });
+      }
+      // Önce mevcut anlık durumu da bir emniyet yedeği olarak saklayalım
+      const snapshot = `mkm_vize_pre_restore_${Date.now()}.db`;
+      fs.copyFileSync('mkm_vize.db', snapshot);
+
+      // 12.10.2026 yedeğini kopyala
+      fs.copyFileSync(backupPath, 'mkm_vize.db');
+
+      logAction((req.session as any).userId, (req.session as any).username, "Veritabanı Geri Yüklendi", `12.10.2026 tarihli yedek başarıyla geri yüklendi.`, 'warning');
+      res.json({ success: true, message: "12.10.2026 tarihli orijinal veritabanı başarıyla geri yüklendi! Sayfayı yenileyebilirsiniz." });
+    } catch (e: any) {
+      console.error("Geri yükleme hatası:", e);
+      res.status(500).json({ error: "Geri yükleme başarısız: " + e.message });
+    }
   });
 
   // Bildirimler
